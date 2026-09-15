@@ -1,15 +1,35 @@
 {
   "name": "web-agent-bridge",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Bridge online web AI agents (Doubao, etc.) to A2A protocol endpoints via a browser extension",
+  "version": "0.2.0",
+  "description": "Bridge online web AI agents (Doubao, etc.) to A2A protocol endpoints via a Chrome extension",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropic-lab/web-agent-bridge.git"
+  },
+  "keywords": [
+    "a2a",
+    "agent-to-agent",
+    "ai-agent",
+    "browser-extension",
+    "doubao",
+    "chrome-extension"
+  ],
   "scripts": {
+    "server": "node --import tsx server/index.ts",
     "build:server": "tsc -p server/tsconfig.json",
     "build:extension": "tsc -p extension/tsconfig.json",
     "build": "npm run build:server && npm run build:extension",
-    "server": "node --import tsx server/index.ts",
-    "test:e2e": "node --import tsx test/e2e.ts"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node --import tsx test/e2e.ts",
+    "test:feishu": "node --import tsx test/feishu-test.ts",
+    "test:quick": "node --import tsx test/quick-test.ts"
+  },
+  "dependencies": {
+    "@a2a-js/sdk": "^1.1.0",
+    "express": "^5",
+    "ws": "^8"
   },
   "devDependencies": {
     "@types/express": "^5",
@@ -18,9 +38,7 @@
     "tsx": "^4",
     "typescript": "^5.7"
   },
-  "dependencies": {
-    "@a2a-js/sdk": "^1.1.0",
-    "express": "^5",
-    "ws": "^8"
+  "engines": {
+    "node": ">=18"
   }
 }

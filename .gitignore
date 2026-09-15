@@ -2,3 +2,9 @@ node_modules/
 dist/
 *.js.map
 .DS_Store
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+/tmp/
+*.log
