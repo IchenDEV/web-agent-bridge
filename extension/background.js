@@ -1,13 +1,16 @@
 /**
  * Service Worker — manages WebSocket to the local A2A server
  * and routes messages between server ↔ content scripts.
+ *
+ * Uses chrome.alarms for reconnection (setTimeout is unreliable in MV3
+ * because the service worker can be terminated at any time).
  */
 
 const WS_URL = "ws://127.0.0.1:3000/ws";
-const RECONNECT_INTERVAL_MS = 3000;
+const ALARM_NAME = "ws-reconnect";
+const KEEPALIVE_ALARM = "ws-keepalive";
 
 let ws = null;
-let reconnectTimer = null;
 
 // ── WebSocket lifecycle ──
 
@@ -20,8 +23,10 @@ function connect() {
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
-    console.log("[Background] Connected to A2A server");
-    clearReconnectTimer();
+    console.log("[Background] ✓ Connected to A2A server");
+    chrome.alarms.clear(ALARM_NAME);
+    // Start keepalive ping every 20 seconds to prevent service worker suspension
+    chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 / 3 }); // ~20s
   };
 
   ws.onmessage = async (event) => {
@@ -38,28 +43,35 @@ function connect() {
   };
 
   ws.onclose = () => {
-    console.log("[Background] Disconnected, will reconnect...");
+    console.log("[Background] Disconnected, scheduling reconnect...");
     ws = null;
+    chrome.alarms.clear(KEEPALIVE_ALARM);
     scheduleReconnect();
   };
 
   ws.onerror = (err) => {
-    console.error("[Background] WS error:", err.message || err);
-    ws?.close();
+    console.error("[Background] WS error");
+    // onclose will fire after onerror
   };
 }
 
 function scheduleReconnect() {
-  clearReconnectTimer();
-  reconnectTimer = setTimeout(connect, RECONNECT_INTERVAL_MS);
+  // chrome.alarms minimum period is 0.5 minutes for periodic,
+  // but delayInMinutes with a small value works for one-shot
+  chrome.alarms.create(ALARM_NAME, { delayInMinutes: 0.05 }); // ~3 seconds
 }
 
-function clearReconnectTimer() {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_NAME) {
+    console.log("[Background] Reconnect alarm fired...");
+    connect();
+  } else if (alarm.name === KEEPALIVE_ALARM) {
+    // Send keepalive ping to prevent MV3 service worker from being terminated
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ping" }));
+    }
   }
-}
+});
 
 // ── Forward a "send" command to the doubao tab's content script ──
 
@@ -92,7 +104,7 @@ async function forwardToContentScript(msg) {
       type: "response",
       taskId: msg.taskId,
       text: "",
-      error: `Content script unreachable: ${e.message}`,
+      error: `Content script unreachable: ${e.message}. Try refreshing the doubao.com/chat tab.`,
     });
   }
 }
@@ -113,5 +125,11 @@ function sendToServer(msg) {
   }
 }
 
-// ── Start ──
+// ── Also try to connect when the service worker starts ──
 connect();
+
+// ── Reconnect when extension is installed/updated ──
+chrome.runtime.onInstalled.addListener(() => {
+  console.log("[Background] Extension installed/updated, connecting...");
+  connect();
+});

@@ -49,6 +49,8 @@ export class WsBridge extends EventEmitter {
     return this.client?.readyState === WebSocket.OPEN;
   }
 
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
+
   attach(server: HttpServer, path = "/ws"): void {
     this.wss = new WebSocketServer({ server, path });
 
@@ -62,6 +64,14 @@ export class WsBridge extends EventEmitter {
       this.client = ws;
       this.emit("connected");
 
+      // Server-side keepalive ping every 15s
+      if (this.pingInterval) clearInterval(this.pingInterval);
+      this.pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, 15_000);
+
       ws.on("message", (raw) => {
         try {
           const msg: BridgeMessage = JSON.parse(raw.toString());
@@ -74,6 +84,10 @@ export class WsBridge extends EventEmitter {
       ws.on("close", () => {
         console.log("[WsBridge] Extension disconnected");
         if (this.client === ws) this.client = null;
+        if (this.pingInterval) {
+          clearInterval(this.pingInterval);
+          this.pingInterval = null;
+        }
         this.rejectAllPending("Extension disconnected");
         this.emit("disconnected");
       });
@@ -130,6 +144,7 @@ export class WsBridge extends EventEmitter {
         break;
       }
       case "pong":
+      case "ping":
         break;
       default:
         console.warn("[WsBridge] Unknown message type:", (msg as any).type);
