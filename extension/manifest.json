@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Web Agent Bridge",
+  "version": "0.1.0",
+  "description": "Bridge online web AI agents to A2A protocol endpoints",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://www.doubao.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://www.doubao.com/*"],
+      "js": ["adapters/doubao.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {}
+}
