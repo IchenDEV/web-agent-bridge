@@ -138,6 +138,29 @@ const WorkbuddyAdapter = (() => {
   }
 
   /**
+   * Snapshot the last assistant element for identity-based tracking.
+   */
+  function snapshotLastAssistant() {
+    const blocks = getAssistantContentBlocks();
+    return blocks.length > 0 ? blocks[blocks.length - 1] : null;
+  }
+
+  /**
+   * Check whether a genuinely NEW assistant block appeared after `prevLastEl`.
+   */
+  function hasNewAssistantAfter(prevLastEl) {
+    const blocks = getAssistantContentBlocks();
+    if (blocks.length === 0) return false;
+    if (!prevLastEl) return blocks.length > 0;
+
+    const lastNow = blocks[blocks.length - 1];
+    if (lastNow === prevLastEl) return false;
+    if (!document.contains(prevLastEl)) return true;
+    const position = prevLastEl.compareDocumentPosition(lastNow);
+    return !!(position & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  /**
    * Check if WorkBuddy is still generating a response.
    */
   function isStillStreaming() {
@@ -189,16 +212,26 @@ const WorkbuddyAdapter = (() => {
     console.log(`[WB] Found editor: ${editor.className.slice(0, 60)}`);
 
     editor.focus();
-    await sleep(200);
+    await sleep(150);
 
-    // Select all existing content and replace
+    // Fully clear any leftover content
+    document.execCommand("selectAll", false, null);
+    document.execCommand("delete", false, null);
+    await sleep(100);
+
+    if (editor.textContent && editor.textContent.trim().length > 0) {
+      editor.textContent = "";
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      await sleep(100);
+    }
+
+    // Insert new text
     const selection = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(editor);
+    range.collapse(false);
     selection.removeAllRanges();
     selection.addRange(range);
-
-    // WorkBuddy uses Slate editor — insertText via execCommand
     document.execCommand("insertText", false, text);
     editor.dispatchEvent(new Event("input", { bubbles: true }));
 
@@ -229,34 +262,31 @@ const WorkbuddyAdapter = (() => {
 
   // ── Wait for AI response ──
 
-  async function waitForResponse(prevUserCount, prevAssistantCount, timeoutSec = 180) {
+  async function waitForResponse(prevLastEl, timeoutSec = 180) {
     const deadline = Date.now() + timeoutSec * 1000;
     const startUrl = location.href;
     let navigationDetected = false;
+    const prevCount = getAssistantContentBlocks().length;
 
-    // Phase 1: Wait for a new assistant response to appear
-    console.log(
-      `[WB] Waiting... (prev user: ${prevUserCount}, prev assistant: ${prevAssistantCount})`
-    );
+    // Phase 1: Wait for a genuinely NEW assistant block
+    console.log(`[WB] Waiting... (prev blocks: ${prevCount}, tracking last element)`);
 
     while (Date.now() < deadline) {
-      // Check for page navigation (task creation → task page)
       if (!navigationDetected && location.href !== startUrl) {
         console.log(`[WB] Navigation: ${startUrl} → ${location.href}`);
         navigationDetected = true;
         await sleep(2000);
       }
 
-      const currentAssistant = getAssistantContentBlocks().length;
-      if (currentAssistant > prevAssistantCount) {
-        console.log(`[WB] New assistant block! (${prevAssistantCount} → ${currentAssistant})`);
+      if (hasNewAssistantAfter(prevLastEl)) {
+        console.log(`[WB] New assistant block! (now ${getAssistantContentBlocks().length})`);
         break;
       }
 
       await sleep(800);
     }
 
-    if (getAssistantContentBlocks().length <= prevAssistantCount) {
+    if (!hasNewAssistantAfter(prevLastEl)) {
       throw new Error(
         `Timeout: no new assistant message after ${timeoutSec}s. ` +
           `User msgs: ${getUserMessages().length}, ` +
@@ -303,14 +333,12 @@ const WorkbuddyAdapter = (() => {
   // ── Public API ──
 
   async function sendAndWaitForResponse(text, timeoutSec = 180) {
-    const prevUserCount = getUserMessages().length;
-    const prevAssistantCount = getAssistantContentBlocks().length;
-    console.log(
-      `[WB] Start — user msgs: ${prevUserCount}, assistant blocks: ${prevAssistantCount}`
-    );
+    const prevLastEl = snapshotLastAssistant();
+    const prevCount = getAssistantContentBlocks().length;
+    console.log(`[WB] Start — assistant blocks: ${prevCount}, all user msgs: ${getUserMessages().length}`);
 
     await sendMessage(text);
-    return waitForResponse(prevUserCount, prevAssistantCount, timeoutSec);
+    return waitForResponse(prevLastEl, timeoutSec);
   }
 
   function sleep(ms) {
