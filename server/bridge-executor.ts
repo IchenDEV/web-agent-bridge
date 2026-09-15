@@ -4,6 +4,10 @@ import { TaskState, Role } from "@a2a-js/sdk";
 import type { Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent } from "@a2a-js/sdk";
 import type { WsBridge } from "./ws-bridge.js";
 
+function isoNow(): string {
+  return new Date().toISOString();
+}
+
 /**
  * A2A AgentExecutor that bridges incoming messages to the browser extension
  * via WebSocket, waits for the AI response, and publishes it as a Task artifact.
@@ -18,7 +22,7 @@ export class BridgeExecutor implements AgentExecutor {
     const task: Task = {
       id: ctx.taskId,
       contextId: ctx.contextId,
-      status: { state: TaskState.TASK_STATE_WORKING, message: undefined, timestamp: undefined },
+      status: { state: TaskState.TASK_STATE_WORKING, message: undefined, timestamp: isoNow() },
       artifacts: [],
       history: [ctx.userMessage],
       metadata: undefined,
@@ -55,7 +59,7 @@ export class BridgeExecutor implements AgentExecutor {
       const doneEvent: TaskStatusUpdateEvent = {
         taskId: ctx.taskId,
         contextId: ctx.contextId,
-        status: { state: TaskState.TASK_STATE_COMPLETED, message: undefined, timestamp: undefined },
+        status: { state: TaskState.TASK_STATE_COMPLETED, message: undefined, timestamp: isoNow() },
         metadata: undefined,
       };
       eventBus.publish(AgentEvent.statusUpdate(doneEvent));
@@ -82,7 +86,7 @@ export class BridgeExecutor implements AgentExecutor {
             extensions: [],
             referenceTaskIds: [],
           },
-          timestamp: undefined,
+          timestamp: isoNow(),
         },
         metadata: undefined,
       };
@@ -96,7 +100,7 @@ export class BridgeExecutor implements AgentExecutor {
     const event: TaskStatusUpdateEvent = {
       taskId,
       contextId: taskId,
-      status: { state: TaskState.TASK_STATE_CANCELED, message: undefined, timestamp: undefined },
+      status: { state: TaskState.TASK_STATE_CANCELED, message: undefined, timestamp: isoNow() },
       metadata: undefined,
     };
     eventBus.publish(AgentEvent.statusUpdate(event));
