@@ -53,7 +53,7 @@ Bridge online AI agents (Doubao, etc.) into standard [A2A (Agent-to-Agent)](http
 ### 1. 安装依赖
 
 ```bash
-git clone https://github.com/anthropic-lab/web-agent-bridge.git
+git clone https://github.com/IchenDEV/web-agent-bridge.git
 cd web-agent-bridge
 npm install
 ```
