@@ -4,6 +4,7 @@
  */
 import { ClientFactory, JsonRpcTransportFactory } from "@a2a-js/sdk/client";
 import { Role, TaskState } from "@a2a-js/sdk";
+import type { Task } from "@a2a-js/sdk";
 
 const BASE = "http://127.0.0.1:3000";
 
@@ -27,7 +28,7 @@ async function main() {
     console.log(`\n[${i + 1}/${messages.length}] Sending: "${msg}"`);
 
     try {
-      const task = await client.sendMessage({
+      const task = (await client.sendMessage({
         tenant: "",
         message: {
           messageId: crypto.randomUUID(),
@@ -48,7 +49,7 @@ async function main() {
         },
         configuration: undefined,
         metadata: undefined,
-      });
+      })) as unknown as Task;
 
       const state = task?.status?.state;
       const textPart = task?.artifacts?.[0]?.parts?.[0]?.content;

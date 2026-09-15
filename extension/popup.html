@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #fafafa;
+      color: #1a1a2e;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+    }
+    .header img { width: 28px; height: 28px; border-radius: 6px; }
+    .header h1 { font-size: 15px; font-weight: 600; }
+    .header .ver { font-size: 11px; opacity: 0.75; margin-left: auto; }
+
+    .section {
+      padding: 14px 16px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .section:last-child { border-bottom: none; }
+
+    .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #6b7280;
+      margin-bottom: 6px;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot.green  { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+    .dot.red    { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,0.4); }
+    .dot.yellow { background: #eab308; box-shadow: 0 0 6px rgba(234,179,8,0.4); }
+    .dot.gray   { background: #9ca3af; }
+
+    .status-text { font-weight: 500; }
+    .status-sub  { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+    .agent-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .agent-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    .agent-item .name { font-weight: 500; }
+    .agent-item .url  { font-size: 11px; color: #6b7280; margin-left: auto; }
+
+    .server-url {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .server-url code {
+      flex: 1;
+      font-size: 12px;
+      background: #f3f4f6;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-family: "SF Mono", Menlo, monospace;
+      color: #374151;
+    }
+    .btn {
+      padding: 5px 10px;
+      font-size: 11px;
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn:hover { background: #4f46e5; }
+    .btn:active { transform: scale(0.97); }
+
+    .footer {
+      padding: 10px 16px;
+      text-align: center;
+      font-size: 11px;
+      color: #9ca3af;
+    }
+    .footer a { color: #6366f1; text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+
+    .loading { color: #9ca3af; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="icons/icon48.png" alt="icon">
+    <h1>Web Agent Bridge</h1>
+    <span class="ver" id="version">v0.2.0</span>
+  </div>
+
+  <div class="section">
+    <div class="label">服务器连接</div>
+    <div class="status-row" id="ws-status">
+      <span class="dot gray"></span>
+      <span class="status-text loading">检查中…</span>
+    </div>
+    <div class="status-sub" id="ws-detail"></div>
+  </div>
+
+  <div class="section">
+    <div class="label">已检测的 Agent 标签页</div>
+    <div id="agents" class="agent-list">
+      <span class="loading">扫描中…</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="label">A2A 服务器</div>
+    <div class="server-url">
+      <code id="server-url">http://127.0.0.1:3000</code>
+      <button class="btn" id="btn-options">设置</button>
+    </div>
+  </div>
+
+  <div class="footer">
+    <a href="https://github.com/IchenDEV/web-agent-bridge" target="_blank">GitHub</a>
+    &nbsp;·&nbsp; A2A v1.0
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

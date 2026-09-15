@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="128" height="128" rx="20" fill="url(#bg)"/>
+  <!-- Bridge arch -->
+  <path d="M20 85 Q64 25 108 85" fill="none" stroke="rgba(255,255,255,0.95)" stroke-width="6" stroke-linecap="round"/>
+  <!-- Bridge deck -->
+  <line x1="15" y1="90" x2="113" y2="90" stroke="rgba(255,255,255,0.95)" stroke-width="4" stroke-linecap="round"/>
+  <!-- Left node (Agent A) -->
+  <circle cx="35" cy="60" r="8" fill="#fbbf24"/>
+  <!-- Right node (Agent B) -->
+  <circle cx="93" cy="60" r="8" fill="#34d399"/>
+  <!-- Signal between nodes -->
+  <line x1="43" y1="60" x2="85" y2="60" stroke="rgba(255,255,255,0.6)" stroke-width="2" stroke-dasharray="4 4"/>
+  <!-- A2A text -->
+  <text x="64" y="112" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-family="system-ui,sans-serif" font-weight="bold" font-size="13">A2A</text>
+</svg>

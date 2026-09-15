@@ -8,9 +8,14 @@
  *
  * Uses chrome.alarms for reconnection (setTimeout is unreliable in MV3
  * because the service worker can be terminated at any time).
+ *
+ * Features:
+ *   - Dynamic server URL from chrome.storage.local
+ *   - Badge indicator: green = connected, red = disconnected
+ *   - Responds to settings-changed messages from options page
  */
 
-const WS_URL = "ws://127.0.0.1:3000/ws";
+const DEFAULT_WS_URL = "ws://127.0.0.1:3000/ws";
 const ALARM_NAME = "ws-reconnect";
 const KEEPALIVE_ALARM = "ws-keepalive";
 
@@ -33,18 +38,58 @@ const AGENT_TAB_PATTERNS = [
 
 let ws = null;
 
+// ── Badge helpers ──
+
+function setBadge(state) {
+  const config = {
+    connected:    { text: "", color: "#22c55e" },   // green dot via icon tint
+    disconnected: { text: "!", color: "#ef4444" },   // red exclamation
+    connecting:   { text: "…", color: "#eab308" },   // yellow ellipsis
+  };
+  const c = config[state] || config.disconnected;
+  chrome.action.setBadgeText({ text: c.text });
+  chrome.action.setBadgeBackgroundColor({ color: c.color });
+  chrome.action.setBadgeTextColor({ color: "#ffffff" });
+}
+
+// ── Get WS URL from storage ──
+
+async function getWsUrl() {
+  try {
+    const { serverUrl } = await chrome.storage.local.get("serverUrl");
+    if (serverUrl) {
+      const u = new URL(serverUrl);
+      u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+      u.pathname = "/ws";
+      return u.toString();
+    }
+  } catch (_) {}
+  return DEFAULT_WS_URL;
+}
+
 // ── WebSocket lifecycle ──
 
-function connect() {
+async function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return;
   }
 
-  console.log("[Background] Connecting to", WS_URL);
-  ws = new WebSocket(WS_URL);
+  const wsUrl = await getWsUrl();
+  console.log("[Background] Connecting to", wsUrl);
+  setBadge("connecting");
+
+  try {
+    ws = new WebSocket(wsUrl);
+  } catch (e) {
+    console.error("[Background] WebSocket construction failed:", e);
+    setBadge("disconnected");
+    scheduleReconnect();
+    return;
+  }
 
   ws.onopen = () => {
     console.log("[Background] ✓ Connected to A2A server");
+    setBadge("connected");
     chrome.alarms.clear(ALARM_NAME);
     chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 / 3 });
   };
@@ -65,12 +110,14 @@ function connect() {
   ws.onclose = () => {
     console.log("[Background] Disconnected, scheduling reconnect...");
     ws = null;
+    setBadge("disconnected");
     chrome.alarms.clear(KEEPALIVE_ALARM);
     scheduleReconnect();
   };
 
-  ws.onerror = (err) => {
+  ws.onerror = () => {
     console.error("[Background] WS error");
+    setBadge("disconnected");
   };
 }
 
@@ -143,7 +190,6 @@ async function forwardToContentScript(msg) {
       return;
     }
 
-    // Wait for scripts to initialize
     await new Promise((r) => setTimeout(r, 1000));
 
     // Retry send
@@ -179,11 +225,17 @@ async function forwardToContentScript(msg) {
   });
 }
 
-// ── Receive responses from content scripts ──
+// ── Receive responses from content scripts & settings changes ──
 
 chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
   if (msg.type === "response") {
     sendToServer(msg);
+  } else if (msg.type === "settings-changed") {
+    console.log("[Background] Settings changed, reconnecting...");
+    if (ws) {
+      ws.close();
+    }
+    connect();
   }
 });
 
@@ -195,7 +247,8 @@ function sendToServer(msg) {
   }
 }
 
-// ── Also try to connect when the service worker starts ──
+// ── Initial connection ──
+setBadge("disconnected");
 connect();
 
 // ── Reconnect when extension is installed/updated ──

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>Web Agent Bridge - 设置</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f9fafb;
+      color: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding-top: 60px;
+    }
+    .container {
+      width: 480px;
+    }
+    h1 {
+      font-size: 22px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    h1 img { width: 28px; height: 28px; border-radius: 6px; }
+    .subtitle {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 28px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      font-size: 15px;
+      margin-bottom: 14px;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    .field input {
+      width: 100%;
+      padding: 8px 12px;
+      font-size: 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      outline: none;
+      font-family: "SF Mono", Menlo, monospace;
+    }
+    .field input:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+    }
+    .field .hint {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 4px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .btn {
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: #6366f1;
+      color: #fff;
+    }
+    .btn-primary:hover { background: #4f46e5; }
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #374151;
+      border: 1px solid #e5e7eb;
+    }
+    .btn-secondary:hover { background: #e5e7eb; }
+
+    .toast {
+      margin-left: 10px;
+      font-size: 13px;
+      color: #22c55e;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1><img src="icons/icon48.png" alt="icon"> Web Agent Bridge</h1>
+    <p class="subtitle">配置浏览器扩展的连接参数</p>
+
+    <div class="card">
+      <h2>🖥️ A2A 服务器</h2>
+      <div class="field">
+        <label>服务器地址</label>
+        <input type="text" id="server-url" placeholder="http://127.0.0.1:3000">
+        <div class="hint">本地 A2A 服务器的 HTTP 地址。修改后扩展会自动重新连接。</div>
+      </div>
+
+      <div class="field">
+        <label>WebSocket 地址（自动生成）</label>
+        <input type="text" id="ws-url" readonly style="background:#f9fafb; color:#6b7280;">
+        <div class="hint">根据服务器地址自动推导，无需手动修改。</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btn-save">保存设置</button>
+      <button class="btn btn-secondary" id="btn-reset">恢复默认</button>
+      <span class="toast" id="toast">✓ 已保存</span>
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
