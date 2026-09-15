@@ -7,14 +7,25 @@ export const agentCard: AgentCard = {
   description:
     "Bridges the Doubao (豆包) web chat to A2A. " +
     "Send a message and receive the AI assistant's reply.",
-  url: `http://localhost:${PORT}/a2a`,
-  version: "0.1.0",
-  defaultInputModes: ["text"],
-  defaultOutputModes: ["text"],
+  supportedInterfaces: [
+    {
+      url: `http://localhost:${PORT}/a2a`,
+      protocolBinding: "JSONRPC",
+      tenant: "",
+      protocolVersion: "1.0",
+    },
+  ],
+  provider: undefined,
+  version: "0.2.0",
   capabilities: {
     streaming: false,
     pushNotifications: false,
+    extensions: [],
   },
+  securitySchemes: {},
+  securityRequirements: [],
+  defaultInputModes: ["text/plain"],
+  defaultOutputModes: ["text/plain"],
   skills: [
     {
       id: "doubao-chat",
@@ -23,6 +34,10 @@ export const agentCard: AgentCard = {
         "Send a text message to the Doubao web chat and receive the assistant's response.",
       tags: ["chat", "doubao", "豆包"],
       examples: ["1+1等于几？", "帮我写一首诗"],
+      inputModes: [],
+      outputModes: [],
+      securityRequirements: [],
     },
   ],
+  signatures: [],
 };

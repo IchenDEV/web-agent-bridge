@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer } from "http";
-import { A2AExpressApp, DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
+import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
+import { jsonRpcHandler, agentCardHandler, UserBuilder } from "@a2a-js/sdk/server/express";
 import { agentCard, PORT } from "./agent-card.js";
 import { BridgeExecutor } from "./bridge-executor.js";
 import { WsBridge } from "./ws-bridge.js";
@@ -24,10 +25,19 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// Mount A2A routes at /a2a (JSON-RPC endpoint + Agent Card)
-// Cast needed: SDK bundles its own @types/express version
-const a2aApp = new A2AExpressApp(requestHandler);
-a2aApp.setupRoutes(app as any, "/a2a");
+// A2A Agent Card — serve at both standard and sub-path locations
+const cardMiddleware = agentCardHandler({ agentCardProvider: requestHandler });
+app.use("/.well-known/agent-card.json", cardMiddleware);
+app.use("/a2a/.well-known/agent-card.json", cardMiddleware);
+
+// A2A JSON-RPC endpoint
+app.use(
+  "/a2a",
+  jsonRpcHandler({
+    requestHandler,
+    userBuilder: UserBuilder.noAuthentication,
+  })
+);
 
 // ── HTTP + WS server ──
 const server = createServer(app);
@@ -36,12 +46,12 @@ bridge.attach(server);
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`
 ╔════════════════════════════════════════════╗
-║  Web Agent Bridge – A2A Server             ║
+║  Web Agent Bridge – A2A Server (v1.0)      ║
 ╠════════════════════════════════════════════╣
 ║  HTTP:  http://127.0.0.1:${PORT}             ║
 ║  A2A:   http://127.0.0.1:${PORT}/a2a         ║
 ║  WS:    ws://127.0.0.1:${PORT}/ws            ║
-║  Card:  http://127.0.0.1:${PORT}/a2a/.well-known/agent.json
+║  Card:  http://127.0.0.1:${PORT}/a2a/.well-known/agent-card.json
 ╚════════════════════════════════════════════╝
   `);
 });

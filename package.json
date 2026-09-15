@@ -13,13 +13,13 @@
   },
   "devDependencies": {
     "@types/express": "^5",
-    "@types/ws": "^8",
     "@types/node": "^22",
+    "@types/ws": "^8",
     "tsx": "^4",
     "typescript": "^5.7"
   },
   "dependencies": {
-    "@a2a-js/sdk": "^0.2",
+    "@a2a-js/sdk": "^1.1.0",
     "express": "^5",
     "ws": "^8"
   }

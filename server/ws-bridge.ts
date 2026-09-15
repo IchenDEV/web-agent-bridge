@@ -104,7 +104,7 @@ export class WsBridge extends EventEmitter {
    * Send a chat message to the extension and wait for the AI response.
    * Returns the response text or throws on timeout / disconnect.
    */
-  sendAndWait(taskId: string, text: string, timeoutMs = 120_000): Promise<string> {
+  sendAndWait(taskId: string, text: string, timeoutMs = 180_000): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       if (!this.connected) {
         return reject(new Error("No extension connected"));

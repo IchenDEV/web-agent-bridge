@@ -1,4 +1,6 @@
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
+import { AgentEvent } from "@a2a-js/sdk/server";
+import { TaskState, Role } from "@a2a-js/sdk";
 import type { Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent } from "@a2a-js/sdk";
 import type { WsBridge } from "./ws-bridge.js";
 
@@ -13,57 +15,78 @@ export class BridgeExecutor implements AgentExecutor {
     const userText = this.extractText(ctx);
     console.log(`[BridgeExecutor] Task ${ctx.taskId} | text: "${userText.slice(0, 80)}"`);
 
-    // Publish the initial Task object so ResultManager can track it
     const task: Task = {
-      kind: "task",
       id: ctx.taskId,
       contextId: ctx.contextId,
-      status: { state: "working" },
+      status: { state: TaskState.TASK_STATE_WORKING, message: undefined, timestamp: undefined },
+      artifacts: [],
       history: [ctx.userMessage],
+      metadata: undefined,
     };
-    eventBus.publish(task);
+    eventBus.publish(AgentEvent.task(task));
 
     try {
       const responseText = await this.bridge.sendAndWait(ctx.taskId, userText);
 
-      // Publish the AI response as an artifact
       const artifactEvent: TaskArtifactUpdateEvent = {
         taskId: ctx.taskId,
         contextId: ctx.contextId,
-        kind: "artifact-update",
         artifact: {
           artifactId: `${ctx.taskId}-reply`,
-          parts: [{ kind: "text", text: responseText }],
+          name: "response",
+          description: "AI assistant response",
+          parts: [
+            {
+              content: { $case: "text", value: responseText },
+              metadata: undefined,
+              filename: "",
+              mediaType: "text/plain",
+            },
+          ],
+          metadata: undefined,
+          extensions: [],
         },
+        append: false,
+        lastChunk: true,
+        metadata: undefined,
       };
-      eventBus.publish(artifactEvent);
+      eventBus.publish(AgentEvent.artifactUpdate(artifactEvent));
 
-      // Publish "completed" status
       const doneEvent: TaskStatusUpdateEvent = {
         taskId: ctx.taskId,
         contextId: ctx.contextId,
-        kind: "status-update",
-        status: { state: "completed" },
-        final: true,
+        status: { state: TaskState.TASK_STATE_COMPLETED, message: undefined, timestamp: undefined },
+        metadata: undefined,
       };
-      eventBus.publish(doneEvent);
+      eventBus.publish(AgentEvent.statusUpdate(doneEvent));
     } catch (err: any) {
       const failEvent: TaskStatusUpdateEvent = {
         taskId: ctx.taskId,
         contextId: ctx.contextId,
-        kind: "status-update",
         status: {
-          state: "failed",
+          state: TaskState.TASK_STATE_FAILED,
           message: {
-            kind: "message",
             messageId: `${ctx.taskId}-error`,
-            role: "agent",
-            parts: [{ kind: "text", text: `Error: ${err.message}` }],
+            contextId: ctx.contextId,
+            taskId: ctx.taskId,
+            role: Role.ROLE_AGENT,
+            parts: [
+              {
+                content: { $case: "text", value: `Error: ${err.message}` },
+                metadata: undefined,
+                filename: "",
+                mediaType: "text/plain",
+              },
+            ],
+            metadata: undefined,
+            extensions: [],
+            referenceTaskIds: [],
           },
+          timestamp: undefined,
         },
-        final: true,
+        metadata: undefined,
       };
-      eventBus.publish(failEvent);
+      eventBus.publish(AgentEvent.statusUpdate(failEvent));
     }
 
     eventBus.finished();
@@ -73,17 +96,16 @@ export class BridgeExecutor implements AgentExecutor {
     const event: TaskStatusUpdateEvent = {
       taskId,
       contextId: taskId,
-      kind: "status-update",
-      status: { state: "canceled" },
-      final: true,
+      status: { state: TaskState.TASK_STATE_CANCELED, message: undefined, timestamp: undefined },
+      metadata: undefined,
     };
-    eventBus.publish(event);
+    eventBus.publish(AgentEvent.statusUpdate(event));
     eventBus.finished();
   }
 
   private extractText(ctx: RequestContext): string {
     for (const part of ctx.userMessage.parts) {
-      if (part.kind === "text") return part.text;
+      if (part.content?.$case === "text") return part.content.value;
     }
     throw new Error("No text part in user message");
   }

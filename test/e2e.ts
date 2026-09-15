@@ -8,15 +8,34 @@
  *   4. Run this script:              npm run test:e2e
  */
 
-import { A2AClient } from "@a2a-js/sdk/client";
+import { ClientFactory, JsonRpcTransportFactory } from "@a2a-js/sdk/client";
+import type { Task, Message } from "@a2a-js/sdk";
+import { Role } from "@a2a-js/sdk";
 import { randomUUID } from "crypto";
 
 const SERVER_URL = process.env.A2A_URL || "http://127.0.0.1:3000/a2a";
 const TEST_MESSAGE = process.env.TEST_MSG || "1+1等于几？请只回答数字。";
 
+function extractResponseText(result: Task | Message): string {
+  if ("artifacts" in result && (result as Task).artifacts?.length > 0) {
+    return (result as Task).artifacts
+      .flatMap((a) => a.parts || [])
+      .filter((p) => p.content?.$case === "text")
+      .map((p) => (p.content as { $case: "text"; value: string }).value)
+      .join("\n");
+  }
+  if ("parts" in result) {
+    return (result as Message).parts
+      .filter((p) => p.content?.$case === "text")
+      .map((p) => (p.content as { $case: "text"; value: string }).value)
+      .join("\n");
+  }
+  return "[no text]";
+}
+
 async function main() {
   console.log("═══════════════════════════════════════");
-  console.log(" Web Agent Bridge — E2E Test");
+  console.log(" Web Agent Bridge — E2E Test (v1.0)");
   console.log("═══════════════════════════════════════\n");
 
   // Step 1: Check server health
@@ -32,9 +51,9 @@ async function main() {
   if (!health.extensionConnected) {
     console.error(
       "  ✗ No browser extension connected.\n" +
-      "    1. Load the extension from extension/ in chrome://extensions\n" +
-      "    2. Open https://www.doubao.com/chat/\n" +
-      "    3. Re-run this test"
+        "    1. Load the extension from extension/ in chrome://extensions\n" +
+        "    2. Open https://www.doubao.com/chat/\n" +
+        "    3. Re-run this test"
     );
     process.exit(1);
   }
@@ -42,9 +61,13 @@ async function main() {
 
   // Step 2: Discover agent card
   console.log("[2/4] Discovering Agent Card...");
-  const client = new A2AClient(SERVER_URL);
+  const factory = new ClientFactory({
+    transports: [new JsonRpcTransportFactory()],
+  });
+  const client = await factory.createFromUrl(SERVER_URL.replace(/\/a2a$/, ""));
   const card = await client.getAgentCard();
   console.log(`  Agent: ${card.name}`);
+  console.log(`  Interfaces: ${card.supportedInterfaces.map((i) => `${i.protocolBinding}@${i.protocolVersion}`).join(", ")}`);
   console.log(`  Skills: ${card.skills?.map((s) => s.name).join(", ")}`);
   console.log("  ✓ Agent Card loaded\n");
 
@@ -53,59 +76,46 @@ async function main() {
   const messageId = randomUUID();
   const contextId = randomUUID();
 
-  const response = await client.sendMessage({
+  const result = await client.sendMessage({
+    tenant: "",
     message: {
-      role: "user",
-      kind: "message",
       messageId,
-      parts: [{ kind: "text", text: TEST_MESSAGE }],
       contextId,
+      taskId: "",
+      role: Role.ROLE_USER,
+      parts: [
+        {
+          content: { $case: "text", value: TEST_MESSAGE },
+          metadata: undefined,
+          filename: "",
+          mediaType: "text/plain",
+        },
+      ],
+      metadata: undefined,
+      extensions: [],
+      referenceTaskIds: [],
     },
+    configuration: undefined,
+    metadata: undefined,
   });
 
-  console.log("  Raw response type:", typeof response);
-  console.log("  Response:", JSON.stringify(response, null, 2).slice(0, 500));
+  console.log("  Result type:", "id" in result ? "Task" : "Message");
 
   // Step 4: Validate response
   console.log("\n[4/4] Validating response...");
 
-  if ("error" in response) {
-    console.error("  ✗ Got JSON-RPC error:", (response as any).error);
-    process.exit(1);
-  }
+  const responseText = extractResponseText(result);
 
-  const result = (response as any).result;
-  if (!result) {
-    console.error("  ✗ No result in response");
-    process.exit(1);
-  }
-
-  // result can be a Task or Message
-  let responseText = "";
-
-  if (result.artifacts && result.artifacts.length > 0) {
-    // Task with artifacts
-    for (const artifact of result.artifacts) {
-      for (const part of artifact.parts || []) {
-        if (part.kind === "text") {
-          responseText += part.text;
-        }
-      }
-    }
-    console.log(`  Task state: ${result.status?.state}`);
-  } else if (result.parts) {
-    // Direct message response
-    for (const part of result.parts) {
-      if (part.kind === "text") {
-        responseText += part.text;
-      }
-    }
+  if ("status" in result && result.status) {
+    const task = result as Task;
+    console.log(`  Task state: ${task.status!.state}`);
   }
 
   console.log(`  AI Response: "${responseText.slice(0, 200)}"`);
 
   if (responseText.length === 0) {
     console.error("  ✗ Empty response from AI");
+    console.error("  Full result:", JSON.stringify(result, null, 2).slice(0, 1000));
     process.exit(1);
   }
 

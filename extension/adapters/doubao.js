@@ -131,7 +131,7 @@ const DoubaoAdapter = (() => {
 
   // ── Wait for AI response ──
 
-  async function waitForResponse(prevAssistantCount, timeoutSec = 90) {
+  async function waitForResponse(prevAssistantCount, timeoutSec = 120) {
     const deadline = Date.now() + timeoutSec * 1000;
 
     // Phase 1: Wait for a new ASSISTANT md-box to appear
@@ -190,7 +190,7 @@ const DoubaoAdapter = (() => {
 
   // ── Public API ──
 
-  async function sendAndWaitForResponse(text, timeoutSec = 90) {
+  async function sendAndWaitForResponse(text, timeoutSec = 120) {
     const prevCount = getAssistantMdBoxes().length;
     console.log(`[DA] Start — assistant boxes: ${prevCount}, all boxes: ${getAllMdBoxes().length}`);
 
