@@ -70,4 +70,11 @@ async function handleSend(msg) {
   }
 }
 
+// Notify background that content script is ready
+try {
+  chrome.runtime.sendMessage({ type: "content-ready", adapter: adapter?.name || "none" });
+} catch (_) {
+  // Ignore if background isn't ready yet
+}
+
 console.log("[Content] Web Agent Bridge content script loaded on", location.href);

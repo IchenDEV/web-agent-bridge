@@ -565,24 +565,34 @@ async function main() {
     check("live sendMessage returns result", !!liveResult);
 
     if (isTask(liveResult)) {
-      check("live task completed", liveResult.status?.state === TaskState.TASK_STATE_COMPLETED);
+      const liveCompleted = liveResult.status?.state === TaskState.TASK_STATE_COMPLETED;
+      check("live task completed", liveCompleted);
       const liveText = extractText(liveResult);
       check("live response has text", liveText.length > 0);
       check("live response contains '2'", liveText.includes("2"));
-      console.log(`  ℹ Doubao response: "${liveText.slice(0, 100)}"`);
+      console.log(`  ℹ AI response: "${liveText.slice(0, 200)}"`);
 
-      // Verify artifacts structure
-      check("live task has artifacts", liveResult.artifacts.length > 0);
-      const liveArt = liveResult.artifacts[0];
-      check("live artifact has artifactId", liveArt.artifactId.length > 0);
-      check("live artifact has name", typeof liveArt.name === "string");
-      check("live artifact parts have mediaType", liveArt.parts.every((p) => typeof p.mediaType === "string"));
+      // Verify artifacts structure (only if task completed successfully)
+      if (liveCompleted && liveResult.artifacts.length > 0) {
+        check("live task has artifacts", true);
+        const liveArt = liveResult.artifacts[0];
+        check("live artifact has artifactId", liveArt.artifactId.length > 0);
+        check("live artifact has name", typeof liveArt.name === "string");
+        check("live artifact parts have mediaType", liveArt.parts.every((p) => typeof p.mediaType === "string"));
 
-      // GetTask for the live result
-      const liveGet = await client.getTask({ tenant: "", id: liveResult.id });
-      check("getTask retrieves live task", liveGet.id === liveResult.id);
-      check("getTask live task has artifacts", liveGet.artifacts.length > 0);
-      check("getTask live task has history", liveGet.history.length >= 1);
+        // GetTask for the live result
+        const liveGet = await client.getTask({ tenant: "", id: liveResult.id });
+        check("getTask retrieves live task", liveGet.id === liveResult.id);
+        check("getTask live task has artifacts", liveGet.artifacts.length > 0);
+        check("getTask live task has history", liveGet.history.length >= 1);
+      } else {
+        check("live task has artifacts", liveResult.artifacts.length > 0);
+        console.log(`  ℹ Task state: ${liveResult.status?.state}, artifacts: ${liveResult.artifacts.length}`);
+        if (liveResult.status?.message) {
+          const errText = liveResult.status.message.parts?.[0]?.content;
+          console.log(`  ℹ Status message: ${errText?.$case === "text" ? errText.value.slice(0, 100) : "(non-text)"}`);
+        }
+      }
     }
   } else {
     skip("§15 Live Agent Test", "no extension connected — protocol-only verification");

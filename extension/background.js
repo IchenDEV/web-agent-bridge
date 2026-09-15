@@ -4,6 +4,7 @@
  *
  * Supports multiple AI agent sites. When a "send" command arrives,
  * tries known URL patterns in order until a matching tab is found.
+ * If the content script is unreachable, auto-injects it via scripting API.
  *
  * Uses chrome.alarms for reconnection (setTimeout is unreliable in MV3
  * because the service worker can be terminated at any time).
@@ -14,12 +15,20 @@ const ALARM_NAME = "ws-reconnect";
 const KEEPALIVE_ALARM = "ws-keepalive";
 
 /**
- * Supported AI agent tab URL patterns.
+ * Supported AI agent tab URL patterns and their content script files.
  * Order matters — first match wins.
  */
 const AGENT_TAB_PATTERNS = [
-  { name: "doubao", pattern: "*://www.doubao.com/chat*" },
-  { name: "workbuddy", pattern: "*://www.workbuddy.cn/app*" },
+  {
+    name: "doubao",
+    pattern: "*://www.doubao.com/chat*",
+    scripts: ["adapters/doubao.js", "content.js"],
+  },
+  {
+    name: "workbuddy",
+    pattern: "*://www.workbuddy.cn/app*",
+    scripts: ["adapters/workbuddy.js", "content.js"],
+  },
 ];
 
 let ws = null;
@@ -80,39 +89,86 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+// ── Programmatic content script injection ──
+
+async function injectContentScripts(tabId, scripts) {
+  console.log(`[Background] Injecting content scripts into tab ${tabId}:`, scripts);
+  try {
+    for (const file of scripts) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: [file],
+      });
+    }
+    console.log(`[Background] ✓ Content scripts injected into tab ${tabId}`);
+    return true;
+  } catch (e) {
+    console.error(`[Background] Failed to inject content scripts:`, e);
+    return false;
+  }
+}
+
 // ── Forward a "send" command to a supported AI agent tab ──
 
 async function forwardToContentScript(msg) {
-  // Try each known agent pattern until we find an open tab
-  for (const { name, pattern } of AGENT_TAB_PATTERNS) {
+  for (const { name, pattern, scripts } of AGENT_TAB_PATTERNS) {
     const tabs = await chrome.tabs.query({ url: pattern });
-    if (tabs.length > 0) {
-      const tab = tabs[0];
-      console.log(`[Background] Found ${name} tab (${tab.id}), forwarding task ${msg.taskId}`);
+    if (tabs.length === 0) continue;
 
-      try {
-        await chrome.tabs.sendMessage(tab.id, {
-          type: "send",
-          taskId: msg.taskId,
-          text: msg.text,
-        });
-        return;
-      } catch (e) {
-        console.error(`[Background] Failed to send to ${name} tab:`, e);
-        sendToServer({
-          type: "response",
-          taskId: msg.taskId,
-          text: "",
-          error: `Content script unreachable on ${name} tab: ${e.message}. Try refreshing the page.`,
-        });
-        return;
-      }
+    const tab = tabs[0];
+    console.log(`[Background] Found ${name} tab (id=${tab.id}), forwarding task ${msg.taskId}`);
+
+    // Attempt 1: try sending directly
+    try {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: "send",
+        taskId: msg.taskId,
+        text: msg.text,
+      });
+      return;
+    } catch (e) {
+      console.warn(`[Background] Direct send failed (${name}): ${e.message}`);
+      console.log("[Background] Attempting programmatic injection...");
+    }
+
+    // Attempt 2: inject content scripts and retry
+    const injected = await injectContentScripts(tab.id, scripts);
+    if (!injected) {
+      sendToServer({
+        type: "response",
+        taskId: msg.taskId,
+        text: "",
+        error: `Failed to inject content scripts on ${name} tab. Check extension permissions.`,
+      });
+      return;
+    }
+
+    // Wait for scripts to initialize
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // Retry send
+    try {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: "send",
+        taskId: msg.taskId,
+        text: msg.text,
+      });
+      return;
+    } catch (e2) {
+      console.error(`[Background] Retry also failed (${name}):`, e2);
+      sendToServer({
+        type: "response",
+        taskId: msg.taskId,
+        text: "",
+        error: `Content script unreachable on ${name} tab after injection: ${e2.message}`,
+      });
+      return;
     }
   }
 
   // No matching tab found
-  const patterns = AGENT_TAB_PATTERNS.map((p) => p.name).join(", ");
-  console.error(`[Background] No supported AI agent tab found (tried: ${patterns})`);
+  const names = AGENT_TAB_PATTERNS.map((p) => p.name).join(", ");
+  console.error(`[Background] No supported AI agent tab found (tried: ${names})`);
   sendToServer({
     type: "response",
     taskId: msg.taskId,
