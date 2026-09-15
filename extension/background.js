@@ -2,6 +2,9 @@
  * Service Worker — manages WebSocket to the local A2A server
  * and routes messages between server ↔ content scripts.
  *
+ * Supports multiple AI agent sites. When a "send" command arrives,
+ * tries known URL patterns in order until a matching tab is found.
+ *
  * Uses chrome.alarms for reconnection (setTimeout is unreliable in MV3
  * because the service worker can be terminated at any time).
  */
@@ -9,6 +12,15 @@
 const WS_URL = "ws://127.0.0.1:3000/ws";
 const ALARM_NAME = "ws-reconnect";
 const KEEPALIVE_ALARM = "ws-keepalive";
+
+/**
+ * Supported AI agent tab URL patterns.
+ * Order matters — first match wins.
+ */
+const AGENT_TAB_PATTERNS = [
+  { name: "doubao", pattern: "*://www.doubao.com/chat*" },
+  { name: "workbuddy", pattern: "*://www.workbuddy.cn/app*" },
+];
 
 let ws = null;
 
@@ -25,8 +37,7 @@ function connect() {
   ws.onopen = () => {
     console.log("[Background] ✓ Connected to A2A server");
     chrome.alarms.clear(ALARM_NAME);
-    // Start keepalive ping every 20 seconds to prevent service worker suspension
-    chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 / 3 }); // ~20s
+    chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 / 3 });
   };
 
   ws.onmessage = async (event) => {
@@ -51,14 +62,11 @@ function connect() {
 
   ws.onerror = (err) => {
     console.error("[Background] WS error");
-    // onclose will fire after onerror
   };
 }
 
 function scheduleReconnect() {
-  // chrome.alarms minimum period is 0.5 minutes for periodic,
-  // but delayInMinutes with a small value works for one-shot
-  chrome.alarms.create(ALARM_NAME, { delayInMinutes: 0.05 }); // ~3 seconds
+  chrome.alarms.create(ALARM_NAME, { delayInMinutes: 0.05 });
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -66,47 +74,53 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     console.log("[Background] Reconnect alarm fired...");
     connect();
   } else if (alarm.name === KEEPALIVE_ALARM) {
-    // Send keepalive ping to prevent MV3 service worker from being terminated
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "ping" }));
     }
   }
 });
 
-// ── Forward a "send" command to the doubao tab's content script ──
+// ── Forward a "send" command to a supported AI agent tab ──
 
 async function forwardToContentScript(msg) {
-  const tabs = await chrome.tabs.query({ url: "*://www.doubao.com/chat*" });
+  // Try each known agent pattern until we find an open tab
+  for (const { name, pattern } of AGENT_TAB_PATTERNS) {
+    const tabs = await chrome.tabs.query({ url: pattern });
+    if (tabs.length > 0) {
+      const tab = tabs[0];
+      console.log(`[Background] Found ${name} tab (${tab.id}), forwarding task ${msg.taskId}`);
 
-  if (tabs.length === 0) {
-    console.error("[Background] No doubao.com/chat tab found");
-    sendToServer({
-      type: "response",
-      taskId: msg.taskId,
-      text: "",
-      error: "No doubao.com/chat tab is open. Please open https://www.doubao.com/chat/ first.",
-    });
-    return;
+      try {
+        await chrome.tabs.sendMessage(tab.id, {
+          type: "send",
+          taskId: msg.taskId,
+          text: msg.text,
+        });
+        return;
+      } catch (e) {
+        console.error(`[Background] Failed to send to ${name} tab:`, e);
+        sendToServer({
+          type: "response",
+          taskId: msg.taskId,
+          text: "",
+          error: `Content script unreachable on ${name} tab: ${e.message}. Try refreshing the page.`,
+        });
+        return;
+      }
+    }
   }
 
-  const tab = tabs[0];
-  console.log(`[Background] Forwarding task ${msg.taskId} to tab ${tab.id}`);
-
-  try {
-    await chrome.tabs.sendMessage(tab.id, {
-      type: "send",
-      taskId: msg.taskId,
-      text: msg.text,
-    });
-  } catch (e) {
-    console.error("[Background] Failed to send to content script:", e);
-    sendToServer({
-      type: "response",
-      taskId: msg.taskId,
-      text: "",
-      error: `Content script unreachable: ${e.message}. Try refreshing the doubao.com/chat tab.`,
-    });
-  }
+  // No matching tab found
+  const patterns = AGENT_TAB_PATTERNS.map((p) => p.name).join(", ");
+  console.error(`[Background] No supported AI agent tab found (tried: ${patterns})`);
+  sendToServer({
+    type: "response",
+    taskId: msg.taskId,
+    text: "",
+    error:
+      `No supported AI agent tab is open. ` +
+      `Please open one of: https://www.doubao.com/chat/ or https://www.workbuddy.cn/app`,
+  });
 }
 
 // ── Receive responses from content scripts ──

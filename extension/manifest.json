@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Web Agent Bridge",
-  "version": "0.1.0",
-  "description": "Bridge online web AI agents to A2A protocol endpoints",
+  "version": "0.2.0",
+  "description": "Bridge online web AI agents (Doubao, WorkBuddy, etc.) to A2A protocol endpoints",
   "permissions": [
     "activeTab",
     "scripting",
@@ -10,7 +10,8 @@
     "alarms"
   ],
   "host_permissions": [
-    "*://www.doubao.com/*"
+    "*://www.doubao.com/*",
+    "*://www.workbuddy.cn/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -20,6 +21,11 @@
     {
       "matches": ["*://www.doubao.com/*"],
       "js": ["adapters/doubao.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://www.workbuddy.cn/*"],
+      "js": ["adapters/workbuddy.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
