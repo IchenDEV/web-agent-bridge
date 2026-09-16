@@ -29,7 +29,7 @@
     "test:stress": "node --import tsx test/stress-test.ts"
   },
   "bin": {
-    "web-agent-bridge": "./bin/server.mjs"
+    "web-agent-bridge": "./bin/cli.mjs"
   },
   "dependencies": {
     "@a2a-js/sdk": "^1.1.0",

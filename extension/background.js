@@ -37,6 +37,7 @@ const AGENT_TAB_PATTERNS = [
 ];
 
 let ws = null;
+let connecting = false; // guard against concurrent connect() calls
 
 // ── Badge helpers ──
 
@@ -73,8 +74,22 @@ async function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return;
   }
+  if (connecting) return;
+  connecting = true;
 
-  const wsUrl = await getWsUrl();
+  let wsUrl;
+  try {
+    wsUrl = await getWsUrl();
+  } catch (_) {
+    wsUrl = DEFAULT_WS_URL;
+  }
+
+  // Re-check after async gap
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    connecting = false;
+    return;
+  }
+
   console.log("[Background] Connecting to", wsUrl);
   setBadge("connecting");
 
@@ -82,16 +97,18 @@ async function connect() {
     ws = new WebSocket(wsUrl);
   } catch (e) {
     console.error("[Background] WebSocket construction failed:", e);
+    connecting = false;
     setBadge("disconnected");
     scheduleReconnect();
     return;
   }
 
   ws.onopen = () => {
+    connecting = false;
     console.log("[Background] ✓ Connected to A2A server");
     setBadge("connected");
     chrome.alarms.clear(ALARM_NAME);
-    chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 / 3 });
+    chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 0.5 });
   };
 
   ws.onmessage = async (event) => {
@@ -108,6 +125,7 @@ async function connect() {
   };
 
   ws.onclose = () => {
+    connecting = false;
     console.log("[Background] Disconnected, scheduling reconnect...");
     ws = null;
     setBadge("disconnected");
@@ -116,6 +134,7 @@ async function connect() {
   };
 
   ws.onerror = () => {
+    connecting = false;
     console.error("[Background] WS error");
     setBadge("disconnected");
   };

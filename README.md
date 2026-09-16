@@ -78,16 +78,49 @@ npm run server
 
 ### 4. 发送消息
 
+#### 方式一：CLI 命令（推荐，AI 可直接调用）
+
 ```bash
-# 快速测试
-npx tsx test/quick-test.ts
+# 直接发问，stdout 返回纯文本
+web-agent-bridge send "1+1等于几？"
+# → 2
+
+# 管道输入
+echo "写一首关于秋天的诗" | web-agent-bridge send
+
+# 多轮对话
+web-agent-bridge send -c ctx-abc "继续说"
+
+# JSON 输出（供程序解析）
+web-agent-bridge send --json "hello"
 ```
 
-或用 curl 直接调用 A2A：
+> 💡 `send` 命令输出纯文本，AI Agent 可以直接解析 stdout，无需构造 HTTP 请求。
+
+#### 方式二：使用 agentalk（通用 A2A CLI 客户端）
+
+```bash
+# 安装
+npm install -g agentalk
+
+# 查看 Agent 能力
+agentalk agent http://127.0.0.1:3000
+
+# 发送消息
+agentalk send http://127.0.0.1:3000 -m "帮我写一首诗"
+
+# 流式响应
+agentalk stream http://127.0.0.1:3000 -m "生成一份分析报告"
+```
+
+> [agentalk](https://www.npmjs.com/package/agentalk) 是通用 A2A 协议 CLI 工具，支持流式响应、任务管理等完整功能。
+
+#### 方式三：curl / HTTP
 
 ```bash
 curl -X POST http://127.0.0.1:3000/a2a \
   -H "Content-Type: application/json" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
@@ -107,52 +140,40 @@ curl -X POST http://127.0.0.1:3000/a2a \
 ### 确认连接状态
 
 ```bash
+# CLI
+web-agent-bridge health
+
+# curl
 curl http://127.0.0.1:3000/health
 # → {"ok":true,"extensionConnected":true}
 ```
 
 或点击 Chrome 工具栏的扩展图标，在弹出面板中查看连接状态和已检测到的 Agent 标签页。
 
-## 使用方法
+## CLI 命令参考
 
-### A2A 客户端 SDK
+```
+web-agent-bridge <command> [options]
 
-```typescript
-import { ClientFactory, JsonRpcTransportFactory } from "@a2a-js/sdk/client";
-import { Role } from "@a2a-js/sdk";
+Commands:
+  server              启动 A2A 服务器
+  send <message>      发送消息并输出 AI 回复（纯文本）
+  agent               显示 Agent Card（能力 & 技能）
+  health              检查服务器和扩展连接状态
 
-const factory = new ClientFactory({ transports: [new JsonRpcTransportFactory()] });
-const client = await factory.createFromUrl("http://127.0.0.1:3000");
+Options (send):
+  -m, --message       消息文本
+  -s, --server <url>  服务器地址 (默认 http://127.0.0.1:3000)
+  -c, --context <id>  上下文 ID（多轮对话）
+  -T, --timeout <sec> 超时秒数 (默认 180)
+  -j, --json          输出原始 JSON
 
-const task = await client.sendMessage({
-  tenant: "",
-  message: {
-    messageId: crypto.randomUUID(),
-    contextId: crypto.randomUUID(),
-    taskId: "",
-    role: Role.ROLE_USER,
-    parts: [{
-      content: { $case: "text", value: "帮我写一首关于秋天的诗" },
-      metadata: undefined,
-      filename: "",
-      mediaType: "text/plain",
-    }],
-    metadata: undefined,
-    extensions: [],
-    referenceTaskIds: [],
-  },
-  configuration: undefined,
-  metadata: undefined,
-});
-
-// 提取 AI 回复
-const reply = task.artifacts?.[0]?.parts?.[0]?.content;
-if (reply?.$case === "text") {
-  console.log("AI:", reply.value);
-}
+环境变量:
+  WEB_AGENT_BRIDGE_URL    默认服务器 URL
+  PORT                    服务器端口
 ```
 
-### 扩展设置
+## 扩展设置
 
 点击扩展图标 → **「设置」** 按钮，可以修改：
 
@@ -223,7 +244,7 @@ web-agent-bridge/
 │       ├── doubao.js          #   豆包适配器
 │       └── workbuddy.js       #   WorkBuddy 适配器
 ├── test/                      # 测试脚本
-├── bin/server.mjs             # CLI 入口
+├── bin/cli.mjs                # CLI 入口 (send/agent/health/server)
 ├── package.json
 └── LICENSE                    # MIT
 ```
