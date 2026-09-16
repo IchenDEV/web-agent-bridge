@@ -13,9 +13,11 @@
  * Supported adapters:
  *   - DoubaoAdapter   (doubao.com)
  *   - WorkbuddyAdapter (workbuddy.cn)
+ *   - ChatGPTAdapter  (chatgpt.com)
+ *   - GeminiAdapter   (gemini.google.com)
  */
 
-/* global DoubaoAdapter, WorkbuddyAdapter */
+/* global DoubaoAdapter, WorkbuddyAdapter, ChatGPTAdapter, GeminiAdapter */
 
 // ── Duplicate injection guard ──
 // If the content script is injected a second time (via programmatic injection),
@@ -30,7 +32,11 @@ if (window.__webAgentBridgeLoaded) {
       ? { name: "doubao", impl: DoubaoAdapter }
       : typeof WorkbuddyAdapter !== "undefined"
         ? { name: "workbuddy", impl: WorkbuddyAdapter }
-        : null;
+        : typeof ChatGPTAdapter !== "undefined"
+          ? { name: "chatgpt", impl: ChatGPTAdapter }
+          : typeof GeminiAdapter !== "undefined"
+            ? { name: "gemini", impl: GeminiAdapter }
+            : null;
 
   if (!adapter) {
     console.error("[Content] No adapter available for", location.hostname);

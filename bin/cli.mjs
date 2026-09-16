@@ -25,7 +25,7 @@ const root = join(__dirname, "..");
 const DEFAULT_SERVER = "http://127.0.0.1:3000";
 const VERSION = JSON.parse(readFileSync(join(root, "package.json"), "utf-8")).version;
 
-const KNOWN_AGENTS = ["doubao", "workbuddy"];
+const KNOWN_AGENTS = ["doubao", "workbuddy", "chatgpt", "gemini"];
 
 // ── Arg parsing ──
 

@@ -12,7 +12,9 @@
   ],
   "host_permissions": [
     "*://www.doubao.com/*",
-    "*://www.workbuddy.cn/*"
+    "*://www.workbuddy.cn/*",
+    "*://chatgpt.com/*",
+    "*://gemini.google.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -27,6 +29,16 @@
     {
       "matches": ["*://www.workbuddy.cn/*"],
       "js": ["adapters/workbuddy.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://chatgpt.com/*"],
+      "js": ["adapters/chatgpt.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://gemini.google.com/*"],
+      "js": ["adapters/gemini.js", "content.js"],
       "run_at": "document_idle"
     }
   ],

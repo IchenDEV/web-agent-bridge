@@ -5,7 +5,7 @@ export const PORT = Number(process.env.PORT || 3000);
 export const agentCard: AgentCard = {
   name: "Web Agent Bridge",
   description:
-    "Bridges online web AI agents (Doubao, WorkBuddy, etc.) to A2A. " +
+    "Bridges online web AI agents (Doubao, ChatGPT, Gemini, WorkBuddy) to A2A. " +
     "Send a message and receive the AI assistant's reply via browser automation.",
   supportedInterfaces: [
     {
@@ -34,6 +34,28 @@ export const agentCard: AgentCard = {
         "Send a text message to the Doubao (豆包) web chat and receive the assistant's response.",
       tags: ["chat", "doubao", "豆包"],
       examples: ["1+1等于几？", "帮我写一首诗"],
+      inputModes: [],
+      outputModes: [],
+      securityRequirements: [],
+    },
+    {
+      id: "chatgpt-chat",
+      name: "ChatGPT Chat",
+      description:
+        "Send a message to OpenAI ChatGPT and receive the assistant's response.",
+      tags: ["chat", "chatgpt", "openai", "gpt"],
+      examples: ["Explain quantum computing in simple terms", "Write a Python function to sort a list"],
+      inputModes: [],
+      outputModes: [],
+      securityRequirements: [],
+    },
+    {
+      id: "gemini-chat",
+      name: "Gemini Chat",
+      description:
+        "Send a message to Google Gemini and receive the assistant's response.",
+      tags: ["chat", "gemini", "google"],
+      examples: ["What is the capital of France?", "Help me plan a trip to Tokyo"],
       inputModes: [],
       outputModes: [],
       securityRequirements: [],

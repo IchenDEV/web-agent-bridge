@@ -34,6 +34,16 @@ const AGENT_TAB_PATTERNS = [
     pattern: "*://www.workbuddy.cn/app*",
     scripts: ["adapters/workbuddy.js", "content.js"],
   },
+  {
+    name: "chatgpt",
+    pattern: "*://chatgpt.com/*",
+    scripts: ["adapters/chatgpt.js", "content.js"],
+  },
+  {
+    name: "gemini",
+    pattern: "*://gemini.google.com/*",
+    scripts: ["adapters/gemini.js", "content.js"],
+  },
 ];
 
 let ws = null;

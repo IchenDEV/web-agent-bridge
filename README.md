@@ -37,10 +37,12 @@ A2A Client ──JSON-RPC──▶ Local Server ──WebSocket──▶ Chrome 
 
 ## 支持的 AI Agent
 
-| Agent | 网站 | 说明 |
-|-------|------|------|
-| 🫘 豆包 (Doubao) | [doubao.com/chat](https://www.doubao.com/chat/) | 对话、飞书操作等 |
-| 💼 WorkBuddy | [workbuddy.cn/app](https://www.workbuddy.cn/app) | 文档生成、数据分析、深度研究 |
+| Agent | 网站 | CLI 名称 | 说明 |
+|-------|------|----------|------|
+| 🫘 豆包 (Doubao) | [doubao.com/chat](https://www.doubao.com/chat/) | `doubao` | 对话、飞书操作等 |
+| 🤖 ChatGPT | [chatgpt.com](https://chatgpt.com/) | `chatgpt` | OpenAI GPT 对话 |
+| ✨ Gemini | [gemini.google.com](https://gemini.google.com/app) | `gemini` | Google Gemini 对话 |
+| 💼 WorkBuddy | [workbuddy.cn/app](https://www.workbuddy.cn/app) | `workbuddy` | 文档生成、数据分析、深度研究 |
 
 > 添加新 Agent 只需写一个 JS 适配器，参见 [添加新适配器](#添加新适配器)。
 
@@ -166,7 +168,7 @@ Commands:
   publish [--dry-run] 类型检查 + 打包 + 发布到 npm
 
 Options (send):
-  -a, --agent <name>  目标 Agent: doubao | workbuddy（默认自动检测）
+    -a, --agent <name>  目标 Agent: doubao | chatgpt | gemini | workbuddy（默认自动检测）
   -m, --message <msg> 消息文本
   -s, --server <url>  服务器地址 (默认 http://127.0.0.1:3000)
   -c, --context <id>  上下文 ID（多轮对话）

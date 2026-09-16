@@ -6,6 +6,8 @@
 const AGENT_TAB_PATTERNS = [
   { name: "豆包 (Doubao)", pattern: "*://www.doubao.com/chat*" },
   { name: "WorkBuddy", pattern: "*://www.workbuddy.cn/app*" },
+  { name: "ChatGPT", pattern: "*://chatgpt.com/*" },
+  { name: "Gemini", pattern: "*://gemini.google.com/*" },
 ];
 
 const DEFAULT_SERVER = "http://127.0.0.1:3000";
@@ -77,6 +79,8 @@ async function detectAgentTabs() {
         未检测到已打开的 AI Agent 页面。<br>
         请打开以下任一页面：<br>
         · <a href="https://www.doubao.com/chat/" target="_blank" style="color:#6366f1">doubao.com/chat</a><br>
+        · <a href="https://chatgpt.com/" target="_blank" style="color:#6366f1">chatgpt.com</a><br>
+        · <a href="https://gemini.google.com/app" target="_blank" style="color:#6366f1">gemini.google.com</a><br>
         · <a href="https://www.workbuddy.cn/app" target="_blank" style="color:#6366f1">workbuddy.cn/app</a>
       </div>`;
     return;
