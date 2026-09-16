@@ -11,10 +11,7 @@
     "storage"
   ],
   "host_permissions": [
-    "*://www.doubao.com/*",
-    "*://www.workbuddy.cn/*",
-    "*://chatgpt.com/*",
-    "*://gemini.google.com/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js",

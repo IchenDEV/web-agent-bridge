@@ -154,6 +154,9 @@ function scheduleReconnect() {
   chrome.alarms.create(ALARM_NAME, { delayInMinutes: 0.05 });
 }
 
+// ── Pending task safety timeouts ──
+const pendingTasks = new Map(); // taskId → { timer, name }
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) {
     console.log("[Background] Reconnect alarm fired...");
@@ -161,6 +164,19 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   } else if (alarm.name === KEEPALIVE_ALARM) {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "ping" }));
+    }
+  } else if (alarm.name.startsWith("safety-")) {
+    const taskId = alarm.name.slice("safety-".length);
+    const pending = pendingTasks.get(taskId);
+    if (pending) {
+      console.error(`[Background] Safety alarm: task ${taskId} timed out`);
+      pendingTasks.delete(taskId);
+      sendToServer({
+        type: "response",
+        taskId,
+        text: "",
+        error: `Timeout: ${pending.name} content script did not respond. The page may require login.`,
+      });
     }
   }
 });
@@ -289,25 +305,14 @@ async function forwardToContentScript(msg) {
   const { name, scripts, tab } = matchedAgent;
   console.log(`[Background] Using ${name} tab (id=${tab.id}), forwarding task ${msg.taskId}`);
 
-  // Set a safety timeout: if content script doesn't respond within 100s, report error
-  const safetyTimer = setTimeout(() => {
-    console.error(`[Background] Safety timeout: no response for task ${msg.taskId}`);
-    sendToServer({
-      type: "response",
-      taskId: msg.taskId,
-      text: "",
-      error: `Timeout: ${name} content script did not respond within 100s. The page may require login or the agent is not ready.`,
-    });
-  }, 100_000);
+  // Register safety alarm (survives service worker suspension)
+  pendingTasks.set(msg.taskId, { name });
+  chrome.alarms.create(`safety-${msg.taskId}`, { delayInMinutes: 1.5 }); // 90 seconds
 
-  // Clear the safety timer when we get a response for this task
-  const origSend = sendToServer;
-  const wrappedSend = (responseMsg) => {
-    if (responseMsg.taskId === msg.taskId) {
-      clearTimeout(safetyTimer);
-    }
-    origSend(responseMsg);
-  };
+  function clearSafety() {
+    pendingTasks.delete(msg.taskId);
+    chrome.alarms.clear(`safety-${msg.taskId}`);
+  }
 
   async function trySend() {
     // Attempt 1: direct send
@@ -326,7 +331,7 @@ async function forwardToContentScript(msg) {
     // Attempt 2: inject scripts and retry
     const injected = await injectContentScripts(tab.id, scripts);
     if (!injected) {
-      clearTimeout(safetyTimer);
+      clearSafety();
       sendToServer({
         type: "response",
         taskId: msg.taskId,
@@ -346,7 +351,7 @@ async function forwardToContentScript(msg) {
         text: msg.text,
       });
     } catch (e2) {
-      clearTimeout(safetyTimer);
+      clearSafety();
       console.error(`[Background] Retry failed (${name}):`, e2);
       sendToServer({
         type: "response",
@@ -364,6 +369,11 @@ async function forwardToContentScript(msg) {
 
 chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
   if (msg.type === "response") {
+    // Clear safety alarm for this task
+    if (msg.taskId && pendingTasks.has(msg.taskId)) {
+      pendingTasks.delete(msg.taskId);
+      chrome.alarms.clear(`safety-${msg.taskId}`);
+    }
     sendToServer(msg);
   } else if (msg.type === "settings-changed") {
     console.log("[Background] Settings changed, reconnecting...");

@@ -19,13 +19,29 @@
 
 /* global DoubaoAdapter, WorkbuddyAdapter, ChatGPTAdapter, GeminiAdapter */
 
-// ── Duplicate injection guard ──
-// If the content script is injected a second time (via programmatic injection),
-// skip re-initialization to avoid duplicate listeners.
-if (window.__webAgentBridgeLoaded) {
+// ── Injection guard with extension reload detection ──
+// Uses extension ID + session to detect stale guards from old extension instances.
+const BRIDGE_SESSION = chrome.runtime.id + "_" + Date.now();
+
+// Check if the existing guard is from the same extension instance
+const isStale = window.__webAgentBridgeLoaded && (() => {
+  try {
+    // If we can send a message, the extension context is alive → not stale
+    chrome.runtime.sendMessage({ type: "ping" });
+    return false;
+  } catch {
+    // Extension context invalidated (extension was reloaded) → stale
+    return true;
+  }
+})();
+
+if (window.__webAgentBridgeLoaded && !isStale) {
   console.log("[Content] Already loaded, skipping duplicate injection");
 } else {
-  window.__webAgentBridgeLoaded = true;
+  if (isStale) {
+    console.log("[Content] Stale guard detected (extension reloaded), re-initializing...");
+  }
+  window.__webAgentBridgeLoaded = BRIDGE_SESSION;
 
   const adapter =
     typeof DoubaoAdapter !== "undefined"
@@ -75,8 +91,19 @@ if (window.__webAgentBridgeLoaded) {
 
     console.log(`[Content][${adapter.name}] Task ${taskId}: "${text.slice(0, 60)}"`);
 
+    // Race the adapter call against a hard 80-second timeout
+    // (must be shorter than background.js's 90s safety alarm)
     try {
-      const responseText = await adapter.impl.sendAndWaitForResponse(text);
+      const responseText = await Promise.race([
+        adapter.impl.sendAndWaitForResponse(text),
+        new Promise((_resolve, reject) =>
+          setTimeout(() => reject(new Error(
+            `Content script timeout (80s) on ${adapter.name}. ` +
+            `URL: ${location.href}. The adapter may not support this page state.`
+          )), 80_000)
+        ),
+      ]);
+
       console.log(
         `[Content][${adapter.name}] ✓ ${taskId}: "${responseText.slice(0, 80)}"`
       );
