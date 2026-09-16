@@ -177,7 +177,22 @@ async function injectContentScripts(tabId, scripts) {
 // ── Forward a "send" command to a supported AI agent tab ──
 
 async function forwardToContentScript(msg) {
-  for (const { name, pattern, scripts } of AGENT_TAB_PATTERNS) {
+  // If a target agent is specified, only try that one
+  const patterns = msg.target
+    ? AGENT_TAB_PATTERNS.filter((p) => p.name === msg.target)
+    : AGENT_TAB_PATTERNS;
+
+  if (msg.target && patterns.length === 0) {
+    sendToServer({
+      type: "response",
+      taskId: msg.taskId,
+      text: "",
+      error: `Unknown target agent "${msg.target}". Available: ${AGENT_TAB_PATTERNS.map((p) => p.name).join(", ")}`,
+    });
+    return;
+  }
+
+  for (const { name, pattern, scripts } of patterns) {
     const tabs = await chrome.tabs.query({ url: pattern });
     if (tabs.length === 0) continue;
 
@@ -232,15 +247,17 @@ async function forwardToContentScript(msg) {
   }
 
   // No matching tab found
-  const names = AGENT_TAB_PATTERNS.map((p) => p.name).join(", ");
-  console.error(`[Background] No supported AI agent tab found (tried: ${names})`);
+  const tried = patterns.map((p) => p.name).join(", ");
+  console.error(`[Background] No agent tab found (tried: ${tried})`);
+
+  const hint = msg.target
+    ? `No "${msg.target}" tab is open.`
+    : `No supported AI agent tab is open.`;
   sendToServer({
     type: "response",
     taskId: msg.taskId,
     text: "",
-    error:
-      `No supported AI agent tab is open. ` +
-      `Please open one of: https://www.doubao.com/chat/ or https://www.workbuddy.cn/app`,
+    error: `${hint} Please open: https://www.doubao.com/chat/ or https://www.workbuddy.cn/app`,
   });
 }
 

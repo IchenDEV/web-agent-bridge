@@ -16,7 +16,7 @@ export const agentCard: AgentCard = {
     },
   ],
   provider: undefined,
-  version: "0.3.0",
+  version: "3.21.0",
   capabilities: {
     streaming: false,
     pushNotifications: false,

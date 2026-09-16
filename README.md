@@ -52,10 +52,11 @@ A2A Client ──JSON-RPC──▶ Local Server ──WebSocket──▶ Chrome 
 git clone https://github.com/IchenDEV/web-agent-bridge.git
 cd web-agent-bridge
 npm install
-npm run server
+npm link          # 注册 wab 命令（可选）
+wab server        # 或 npm run server
 ```
 
-> 服务器默认在 `http://127.0.0.1:3000` 启动。可以用 `PORT=8080 npm run server` 更改端口。
+> 服务器默认在 `http://127.0.0.1:3000` 启动。可以用 `wab server -p 8080` 更改端口。
 
 ### 2. 安装浏览器扩展
 
@@ -78,24 +79,28 @@ npm run server
 
 ### 4. 发送消息
 
-#### 方式一：CLI 命令（推荐，AI 可直接调用）
+#### 方式一：`wab` CLI（推荐，AI 可直接调用）
 
 ```bash
 # 直接发问，stdout 返回纯文本
-web-agent-bridge send "1+1等于几？"
+wab send "1+1等于几？"
 # → 2
 
+# 指定目标 Agent
+wab send -a doubao "帮我操作飞书"
+wab send -a workbuddy "写一份周报"
+
 # 管道输入
-echo "写一首关于秋天的诗" | web-agent-bridge send
+echo "写一首关于秋天的诗" | wab send
 
 # 多轮对话
-web-agent-bridge send -c ctx-abc "继续说"
+wab send -c ctx-abc "继续说"
 
 # JSON 输出（供程序解析）
-web-agent-bridge send --json "hello"
+wab send --json "hello"
 ```
 
-> 💡 `send` 命令输出纯文本，AI Agent 可以直接解析 stdout，无需构造 HTTP 请求。
+> 💡 `wab send` 输出纯文本，AI Agent 可以直接解析 stdout，无需构造 HTTP 请求。
 
 #### 方式二：使用 agentalk（通用 A2A CLI 客户端）
 
@@ -140,36 +145,36 @@ curl -X POST http://127.0.0.1:3000/a2a \
 ### 确认连接状态
 
 ```bash
-# CLI
-web-agent-bridge health
-
-# curl
+wab health
+# 或
 curl http://127.0.0.1:3000/health
-# → {"ok":true,"extensionConnected":true}
 ```
 
-或点击 Chrome 工具栏的扩展图标，在弹出面板中查看连接状态和已检测到的 Agent 标签页。
+或点击 Chrome 工具栏的扩展图标，在弹出面板中查看连接状态。
 
 ## CLI 命令参考
 
 ```
-web-agent-bridge <command> [options]
+wab <command> [options]
 
 Commands:
   server              启动 A2A 服务器
   send <message>      发送消息并输出 AI 回复（纯文本）
   agent               显示 Agent Card（能力 & 技能）
   health              检查服务器和扩展连接状态
+  pack                打包扩展为 ZIP
+  publish [--dry-run] 类型检查 + 打包 + 发布到 npm
 
 Options (send):
-  -m, --message       消息文本
+  -a, --agent <name>  目标 Agent: doubao | workbuddy（默认自动检测）
+  -m, --message <msg> 消息文本
   -s, --server <url>  服务器地址 (默认 http://127.0.0.1:3000)
   -c, --context <id>  上下文 ID（多轮对话）
   -T, --timeout <sec> 超时秒数 (默认 180)
   -j, --json          输出原始 JSON
 
 环境变量:
-  WEB_AGENT_BRIDGE_URL    默认服务器 URL
+  WAB_SERVER              默认服务器 URL
   PORT                    服务器端口
 ```
 
@@ -269,12 +274,14 @@ AI Agent 网站更新后可能需要调整适配器中的选择器。用 DevTool
 ## 开发
 
 ```bash
-npm run server          # 启动开发服务器
-npx tsc --noEmit        # 类型检查
-npx tsx test/quick-test.ts       # 快速测试
-npx tsx test/stress-test.ts      # 鲁棒性压力测试 (5 条连发)
-npx tsx test/a2a-protocol-verify.ts  # A2A 协议合规 (91 项)
-npm run pack:extension  # 打包扩展为 ZIP
+wab server                              # 启动开发服务器
+wab health                              # 检查连接
+wab send "test"                         # 快速测试
+wab send -a doubao "test"               # 指定 Agent
+npx tsx test/stress-test.ts             # 鲁棒性压力测试 (5 条连发)
+npx tsx test/a2a-protocol-verify.ts     # A2A 协议合规 (91 项)
+wab pack                                # 打包扩展
+wab publish --dry-run                   # 试跑发布流程
 ```
 
 ## License

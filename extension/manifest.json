@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Web Agent Bridge",
-  "version": "0.3.0",
+  "version": "3.21.0",
   "description": "Bridge online web AI agents (Doubao, WorkBuddy, etc.) to A2A protocol endpoints",
   "permissions": [
     "activeTab",

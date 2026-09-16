@@ -1,0 +1,14 @@
+# Development & test files
+test/
+.github/
+.cursor/
+*.log
+web-agent-bridge-extension.zip
+
+# Extension source SVG (PNGs are in files)
+extension/icons/icon.svg
+extension/tsconfig.json
+
+# Git
+.git/
+.gitignore

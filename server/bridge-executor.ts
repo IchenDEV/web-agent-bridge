@@ -17,7 +17,8 @@ export class BridgeExecutor implements AgentExecutor {
 
   async execute(ctx: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
     const userText = this.extractText(ctx);
-    console.log(`[BridgeExecutor] Task ${ctx.taskId} | text: "${userText.slice(0, 80)}"`);
+    const targetAgent = this.extractTargetAgent(ctx);
+    console.log(`[BridgeExecutor] Task ${ctx.taskId} | agent: ${targetAgent || "auto"} | text: "${userText.slice(0, 80)}"`);
 
     const task: Task = {
       id: ctx.taskId,
@@ -30,7 +31,7 @@ export class BridgeExecutor implements AgentExecutor {
     eventBus.publish(AgentEvent.task(task));
 
     try {
-      const responseText = await this.bridge.sendAndWait(ctx.taskId, userText);
+      const responseText = await this.bridge.sendAndWait(ctx.taskId, userText, 180_000, targetAgent);
 
       const artifactEvent: TaskArtifactUpdateEvent = {
         taskId: ctx.taskId,
@@ -112,5 +113,17 @@ export class BridgeExecutor implements AgentExecutor {
       if (part.content?.$case === "text") return part.content.value;
     }
     throw new Error("No text part in user message");
+  }
+
+  /**
+   * Extract optional target agent from request metadata.
+   * CLI passes this via `metadata: { "x-target-agent": "doubao" }`.
+   */
+  private extractTargetAgent(ctx: RequestContext): string | undefined {
+    const meta = (ctx as any).metadata;
+    if (meta && typeof meta === "object") {
+      return meta["x-target-agent"] || undefined;
+    }
+    return undefined;
   }
 }

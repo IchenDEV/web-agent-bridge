@@ -1,6 +1,6 @@
 {
   "name": "web-agent-bridge",
-  "version": "0.3.0",
+  "version": "3.21.0",
   "description": "Bridge online web AI agents (Doubao, etc.) to A2A protocol endpoints via a Chrome extension",
   "type": "module",
   "license": "MIT",
@@ -26,11 +26,21 @@
     "test:e2e": "node --import tsx test/e2e.ts",
     "test:feishu": "node --import tsx test/feishu-test.ts",
     "test:quick": "node --import tsx test/quick-test.ts",
-    "test:stress": "node --import tsx test/stress-test.ts"
+    "test:stress": "node --import tsx test/stress-test.ts",
+    "prepublishOnly": "npm run typecheck"
   },
   "bin": {
-    "web-agent-bridge": "./bin/cli.mjs"
+    "wab": "bin/cli.mjs",
+    "web-agent-bridge": "bin/cli.mjs"
   },
+  "files": [
+    "bin/",
+    "server/",
+    "extension/",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "@a2a-js/sdk": "^1.1.0",
     "express": "^5",

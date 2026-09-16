@@ -8,6 +8,7 @@ export interface BridgeSendMessage {
   type: "send";
   taskId: string;
   text: string;
+  target?: string; // "doubao" | "workbuddy" | undefined (auto)
 }
 
 export interface BridgeStreamChunkMessage {
@@ -150,7 +151,8 @@ export class WsBridge extends EventEmitter {
   async *sendAndStream(
     taskId: string,
     text: string,
-    timeoutMs = 180_000
+    timeoutMs = 180_000,
+    target?: string
   ): AsyncGenerator<StreamChunk> {
     if (!this.connected) {
       throw new Error("No extension connected");
@@ -164,7 +166,7 @@ export class WsBridge extends EventEmitter {
       this.streamQueues.delete(taskId);
     }, timeoutMs);
 
-    const msg: BridgeSendMessage = { type: "send", taskId, text };
+    const msg: BridgeSendMessage = { type: "send", taskId, text, target };
     this.client!.send(JSON.stringify(msg));
     console.log(`[WsBridge] Sent task ${taskId}: "${text.slice(0, 60)}..."`);
 
@@ -186,9 +188,9 @@ export class WsBridge extends EventEmitter {
   /**
    * Blocking convenience wrapper: send and wait for the complete response.
    */
-  async sendAndWait(taskId: string, text: string, timeoutMs = 180_000): Promise<string> {
+  async sendAndWait(taskId: string, text: string, timeoutMs = 180_000, target?: string): Promise<string> {
     let finalText = "";
-    for await (const chunk of this.sendAndStream(taskId, text, timeoutMs)) {
+    for await (const chunk of this.sendAndStream(taskId, text, timeoutMs, target)) {
       if (chunk.done) {
         finalText = chunk.text;
       }
