@@ -101,11 +101,27 @@ const GeminiAdapter = (() => {
     }
   }
 
+  /**
+   * Wait for the input element to appear (page may still be loading).
+   */
+  async function waitForInput(timeoutMs = 15000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const el = findInput();
+      if (el) return el;
+      await sleep(500);
+    }
+    throw new Error(
+      `Gemini input not found within ${timeoutMs / 1000}s. ` +
+      `Page URL: ${location.href}. ` +
+      `Make sure you are on a Gemini chat page and logged in if required.`
+    );
+  }
+
   // ── Send a message ──
 
   async function sendMessage(text) {
-    const input = findInput();
-    if (!input) throw new Error("Gemini input not found on page");
+    const input = await waitForInput();
 
     console.log(`[GMN] Found input: ${input.className.slice(0, 50)}`);
 
@@ -205,7 +221,7 @@ const GeminiAdapter = (() => {
 
   // ── Public API ──
 
-  async function sendAndWaitForResponse(text, timeoutSec = 120) {
+  async function sendAndWaitForResponse(text, timeoutSec = 90) {
     const prevLastEl = snapshotLastAssistant();
     console.log(`[GMN] Start — model-response elements: ${getModelResponses().length}`);
     await sendMessage(text);

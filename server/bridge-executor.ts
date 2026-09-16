@@ -117,13 +117,21 @@ export class BridgeExecutor implements AgentExecutor {
 
   /**
    * Extract optional target agent from request metadata.
-   * CLI passes this via `metadata: { "x-target-agent": "doubao" }`.
+   * Checks: 1) userMessage.metadata  2) top-level params metadata  3) userMessage.extensions
    */
   private extractTargetAgent(ctx: RequestContext): string | undefined {
-    const meta = (ctx as any).metadata;
-    if (meta && typeof meta === "object") {
-      return meta["x-target-agent"] || undefined;
+    // Try message-level metadata first (most reliable path)
+    const msgMeta = ctx.userMessage.metadata as Record<string, unknown> | undefined;
+    if (msgMeta?.["x-target-agent"]) {
+      return String(msgMeta["x-target-agent"]);
     }
+
+    // Try top-level request metadata (from params.metadata)
+    const reqMeta = (ctx as any).metadata as Record<string, unknown> | undefined;
+    if (reqMeta?.["x-target-agent"]) {
+      return String(reqMeta["x-target-agent"]);
+    }
+
     return undefined;
   }
 }

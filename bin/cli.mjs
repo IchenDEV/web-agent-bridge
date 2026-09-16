@@ -204,7 +204,7 @@ async function cmdSend() {
   }
 
   // Build A2A JSON-RPC payload with optional agent target in metadata
-  const metadata = agent ? { "x-target-agent": agent } : undefined;
+  const agentMeta = agent ? { "x-target-agent": agent } : undefined;
 
   const body = {
     jsonrpc: "2.0",
@@ -217,8 +217,9 @@ async function cmdSend() {
         taskId,
         role: "ROLE_USER",
         parts: [{ text: message, mediaType: "text/plain" }],
+        metadata: agentMeta,
       },
-      metadata,
+      metadata: agentMeta,
     },
   };
 

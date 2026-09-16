@@ -184,6 +184,38 @@ async function injectContentScripts(tabId, scripts) {
   }
 }
 
+// ── Default URLs for auto-opening agent tabs ──
+
+const AGENT_DEFAULT_URLS = {
+  doubao:    "https://www.doubao.com/chat/",
+  workbuddy: "https://www.workbuddy.cn/app",
+  chatgpt:   "https://chatgpt.com/",
+  gemini:    "https://gemini.google.com/app",
+};
+
+/**
+ * Wait for a tab to finish loading by polling its status.
+ * More reliable than onUpdated in MV3 service workers.
+ */
+async function waitForTabReady(tabId, timeoutMs = 60000) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.status === "complete") {
+        console.log(`[Background] Tab ${tabId} loaded: ${tab.url}`);
+        return tab;
+      }
+    } catch (e) {
+      throw new Error(`Tab ${tabId} no longer exists`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  throw new Error("Tab load timeout");
+}
+
 // ── Forward a "send" command to a supported AI agent tab ──
 
 async function forwardToContentScript(msg) {
@@ -202,14 +234,83 @@ async function forwardToContentScript(msg) {
     return;
   }
 
-  for (const { name, pattern, scripts } of patterns) {
-    const tabs = await chrome.tabs.query({ url: pattern });
-    if (tabs.length === 0) continue;
+  // ── Step 1: Find an existing tab ──
+  let matchedAgent = null;
 
-    const tab = tabs[0];
-    console.log(`[Background] Found ${name} tab (id=${tab.id}), forwarding task ${msg.taskId}`);
+  for (const agent of patterns) {
+    const tabs = await chrome.tabs.query({ url: agent.pattern });
+    if (tabs.length > 0) {
+      matchedAgent = { ...agent, tab: tabs[0] };
+      break;
+    }
+  }
 
-    // Attempt 1: try sending directly
+  // ── Step 2: Auto-open a tab if none found ──
+  if (!matchedAgent) {
+    const targetName = msg.target || patterns[0]?.name;
+    const defaultUrl = AGENT_DEFAULT_URLS[targetName];
+
+    if (!defaultUrl) {
+      sendToServer({
+        type: "response",
+        taskId: msg.taskId,
+        text: "",
+        error: `No "${targetName}" tab open and no default URL configured.`,
+      });
+      return;
+    }
+
+    console.log(`[Background] No ${targetName} tab found, auto-opening ${defaultUrl}`);
+
+    try {
+      const newTab = await chrome.tabs.create({ url: defaultUrl, active: true });
+      console.log(`[Background] Created tab ${newTab.id} for ${targetName}, waiting for load...`);
+
+      const readyTab = await waitForTabReady(newTab.id, 60000);
+
+      // Extra wait for JS frameworks to initialize (React, Angular, etc.)
+      await new Promise((r) => setTimeout(r, 3000));
+
+      const agent = patterns.find((p) => p.name === targetName) || patterns[0];
+      matchedAgent = { ...agent, tab: readyTab };
+    } catch (e) {
+      console.error(`[Background] Failed to auto-open ${targetName}:`, e);
+      sendToServer({
+        type: "response",
+        taskId: msg.taskId,
+        text: "",
+        error: `Failed to auto-open ${targetName} tab: ${e.message}`,
+      });
+      return;
+    }
+  }
+
+  // ── Step 3: Send message to the tab ──
+  const { name, scripts, tab } = matchedAgent;
+  console.log(`[Background] Using ${name} tab (id=${tab.id}), forwarding task ${msg.taskId}`);
+
+  // Set a safety timeout: if content script doesn't respond within 100s, report error
+  const safetyTimer = setTimeout(() => {
+    console.error(`[Background] Safety timeout: no response for task ${msg.taskId}`);
+    sendToServer({
+      type: "response",
+      taskId: msg.taskId,
+      text: "",
+      error: `Timeout: ${name} content script did not respond within 100s. The page may require login or the agent is not ready.`,
+    });
+  }, 100_000);
+
+  // Clear the safety timer when we get a response for this task
+  const origSend = sendToServer;
+  const wrappedSend = (responseMsg) => {
+    if (responseMsg.taskId === msg.taskId) {
+      clearTimeout(safetyTimer);
+    }
+    origSend(responseMsg);
+  };
+
+  async function trySend() {
+    // Attempt 1: direct send
     try {
       await chrome.tabs.sendMessage(tab.id, {
         type: "send",
@@ -219,12 +320,13 @@ async function forwardToContentScript(msg) {
       return;
     } catch (e) {
       console.warn(`[Background] Direct send failed (${name}): ${e.message}`);
-      console.log("[Background] Attempting programmatic injection...");
+      console.log("[Background] Injecting content scripts...");
     }
 
-    // Attempt 2: inject content scripts and retry
+    // Attempt 2: inject scripts and retry
     const injected = await injectContentScripts(tab.id, scripts);
     if (!injected) {
+      clearTimeout(safetyTimer);
       sendToServer({
         type: "response",
         taskId: msg.taskId,
@@ -234,7 +336,7 @@ async function forwardToContentScript(msg) {
       return;
     }
 
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 1500));
 
     // Retry send
     try {
@@ -243,32 +345,19 @@ async function forwardToContentScript(msg) {
         taskId: msg.taskId,
         text: msg.text,
       });
-      return;
     } catch (e2) {
-      console.error(`[Background] Retry also failed (${name}):`, e2);
+      clearTimeout(safetyTimer);
+      console.error(`[Background] Retry failed (${name}):`, e2);
       sendToServer({
         type: "response",
         taskId: msg.taskId,
         text: "",
-        error: `Content script unreachable on ${name} tab after injection: ${e2.message}`,
+        error: `Content script unreachable on ${name} tab: ${e2.message}`,
       });
-      return;
     }
   }
 
-  // No matching tab found
-  const tried = patterns.map((p) => p.name).join(", ");
-  console.error(`[Background] No agent tab found (tried: ${tried})`);
-
-  const hint = msg.target
-    ? `No "${msg.target}" tab is open.`
-    : `No supported AI agent tab is open.`;
-  sendToServer({
-    type: "response",
-    taskId: msg.taskId,
-    text: "",
-    error: `${hint} Please open: https://www.doubao.com/chat/ or https://www.workbuddy.cn/app`,
-  });
+  await trySend();
 }
 
 // ── Receive responses from content scripts & settings changes ──

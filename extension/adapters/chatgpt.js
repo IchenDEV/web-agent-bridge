@@ -104,11 +104,27 @@ const ChatGPTAdapter = (() => {
     }
   }
 
+  /**
+   * Wait for the input element to appear (page may still be loading).
+   */
+  async function waitForInput(timeoutMs = 15000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const el = findInput();
+      if (el) return el;
+      await sleep(500);
+    }
+    throw new Error(
+      `ChatGPT input not found within ${timeoutMs / 1000}s. ` +
+      `Page URL: ${location.href}. ` +
+      `You may need to log in or dismiss any dialogs.`
+    );
+  }
+
   // ── Send a message ──
 
   async function sendMessage(text) {
-    const input = findInput();
-    if (!input) throw new Error("ChatGPT input not found on page");
+    const input = await waitForInput();
 
     console.log(`[CGP] Found input: ${input.tagName}#${input.id}`);
 
@@ -228,7 +244,7 @@ const ChatGPTAdapter = (() => {
 
   // ── Public API ──
 
-  async function sendAndWaitForResponse(text, timeoutSec = 120) {
+  async function sendAndWaitForResponse(text, timeoutSec = 90) {
     const prevLastEl = snapshotLastAssistant();
     console.log(`[CGP] Start — assistant turns: ${getAssistantTurns().length}`);
     await sendMessage(text);
