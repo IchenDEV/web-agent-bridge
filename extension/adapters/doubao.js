@@ -91,15 +91,58 @@ const DoubaoAdapter = (() => {
     return !!(position & Node.DOCUMENT_POSITION_FOLLOWING);
   }
 
+  /**
+   * True while Doubao is still working — including tool/Feishu pauses where
+   * assistant text is temporarily unchanged.
+   *
+   * Live signals (doubao.com):
+   *   - send button disabled / send-msg-btn-di… while generating
+   *   - animate-spin / loading / spinner / skeleton in the chat surface
+   *   - short status lines (“正在加载技能 / 正在搜索 / 正在读取…”)
+   */
   function isStillStreaming() {
-    const cursor = document.querySelector('[class*="cursor-blink"], [class*="typing-indicator"]');
-    if (cursor) return true;
+    const sendBtn = findSendButton();
+    if (sendBtn) {
+      const cls = typeof sendBtn.className === "string" ? sendBtn.className : "";
+      if (sendBtn.disabled || /send-msg-btn-di|disabled|cursor-not-allowed/i.test(cls)) {
+        return true;
+      }
+    }
+
+    for (const btn of document.querySelectorAll("button")) {
+      const label = `${btn.getAttribute("aria-label") || ""} ${(btn.textContent || "").trim()}`;
+      if (/^(停止|停止生成|Stop|Stop generating)$/i.test(label.trim())) {
+        const r = btn.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) return true;
+      }
+    }
+
+    const chatRoot =
+      document.querySelector('[class*="message-list"], [class*="chat-body"], main') || document.body;
+    if (
+      chatRoot.querySelector(
+        '[class*="animate-spin"], [class*="loading"], [class*="spinner"], [class*="skeleton"], [class*="cursor-blink"], [class*="typing-indicator"]'
+      )
+    ) {
+      return true;
+    }
 
     const boxes = getAssistantMdBoxes();
     if (boxes.length === 0) return false;
     const last = boxes[boxes.length - 1];
+    const text = (last.textContent || "").replace(/\s+/g, " ").trim();
+    if (text.length > 0 && text.length < 280) {
+      if (
+        /^(正在|开始|继续).{0,12}(加载|搜索|读取|调用|生成|思考|处理|执行|检索)/.test(text) ||
+        /(加载技能|正在读|正在查|Searching|Loading skill|Reading transcript)/i.test(text)
+      ) {
+        return true;
+      }
+    }
     const parent = last.closest('[class*="flex"]');
-    if (parent && parent.querySelector('[class*="loading"], [class*="spinner"]')) return true;
+    if (parent && parent.querySelector('[class*="loading"], [class*="spinner"], [class*="animate-spin"]')) {
+      return true;
+    }
 
     return false;
   }
@@ -213,31 +256,59 @@ const DoubaoAdapter = (() => {
       );
     }
 
-    // Phase 2: Wait for content to stabilize (streaming done)
+    // Phase 2: Wait until text is stable AND the page is truly idle.
+    // Tool/Feishu pauses often leave text unchanged while send stays disabled —
+    // those must NOT count as completion.
     console.log("[DA] Waiting for response to stabilize...");
+    const STABLE_NEEDED = 6;       // ~3s unchanged text while idle
+    const IDLE_AFTER_BUSY = 8;     // ~4s idle after last busy/tool pause
     let lastText = "";
     let stableChecks = 0;
+    let idleSinceBusy = 0;
+    let sawBusy = false;
 
     while (Date.now() < deadline) {
       scrollToBottom();
       const currentText = getLastAssistantText() || "";
+      const busy = isStillStreaming();
 
-      if (currentText.length > 0 && currentText === lastText && !isStillStreaming()) {
+      if (busy) {
+        sawBusy = true;
+        stableChecks = 0;
+        idleSinceBusy = 0;
+        lastText = currentText;
+        await sleep(500);
+        continue;
+      }
+
+      if (currentText.length > 0 && currentText === lastText) {
         stableChecks++;
-        if (stableChecks >= 3) {
-          console.log("[DA] Response stabilized");
+        if (sawBusy) idleSinceBusy++;
+        if (
+          stableChecks >= STABLE_NEEDED &&
+          (!sawBusy || idleSinceBusy >= IDLE_AFTER_BUSY)
+        ) {
+          console.log("[DA] Response stabilized (idle after busy)");
           break;
         }
       } else {
         stableChecks = 0;
+        idleSinceBusy = 0;
         lastText = currentText;
       }
 
       await sleep(500);
     }
 
+    while (Date.now() < deadline && isStillStreaming()) {
+      await sleep(500);
+    }
+    if (isStillStreaming()) {
+      throw new Error(`Timeout: page still busy after ${timeoutSec}s`);
+    }
+
     // Phase 3: Extract final text
-    await sleep(300);
+    await sleep(400);
     const responseText = getLastAssistantText();
 
     if (!responseText) {

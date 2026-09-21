@@ -30,8 +30,11 @@ export async function asElement(
 }
 
 /**
- * Poll until a new assistant node appears and its text stops changing.
- * `prev` is the assistant node that existed before this turn (or null).
+ * Poll until a new assistant node appears and the turn is truly idle.
+ *
+ * Important: `isStreaming` MUST stay true while the page is still working even
+ * if assistant text is temporarily unchanged (tool calls, Feishu lookups, etc.).
+ * Otherwise we return early and the next `send` interrupts an in-flight turn.
  */
 export async function pollForResponse(
   page: Page,
@@ -43,12 +46,16 @@ export async function pollForResponse(
     lastText: () => Promise<string | null>;
     isStreaming: () => Promise<boolean>;
     intervalMs?: number;
+    /** Consecutive idle polls required after text stops changing. */
     stableChecks?: number;
+    /** Extra idle polls required after the last time `isStreaming` was true. */
+    idleAfterBusyChecks?: number;
   },
 ): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   const interval = opts.intervalMs ?? 500;
   const needed = opts.stableChecks ?? 3;
+  const idleAfterBusy = opts.idleAfterBusyChecks ?? needed;
 
   while (Date.now() < deadline) {
     if (await opts.hasNew(prev)) break;
@@ -62,20 +69,47 @@ export async function pollForResponse(
 
   let last = "";
   let stable = 0;
+  let idleSinceBusy = 0;
+  let sawBusy = false;
+
   while (Date.now() < deadline) {
     const current = (await opts.lastText()) ?? "";
     const streaming = await opts.isStreaming();
-    if (current.length > 0 && current === last && !streaming) {
+
+    if (streaming) {
+      sawBusy = true;
+      stable = 0;
+      idleSinceBusy = 0;
+      last = current;
+      await sleep(interval);
+      continue;
+    }
+
+    if (current.length > 0 && current === last) {
       stable += 1;
-      if (stable >= needed) break;
+      if (sawBusy) idleSinceBusy += 1;
+      const ready =
+        stable >= needed && (!sawBusy || idleSinceBusy >= idleAfterBusy);
+      if (ready) break;
     } else {
       stable = 0;
+      idleSinceBusy = 0;
       last = current;
     }
     await sleep(interval);
   }
 
-  await sleep(300);
+  // Final guard: never return while the page still reports busy.
+  while (Date.now() < deadline && (await opts.isStreaming())) {
+    await sleep(interval);
+  }
+  if (await opts.isStreaming()) {
+    throw new Error(
+      `Timeout: page still busy after ${Math.round(timeoutMs / 1000)}s (${opts.label})`,
+    );
+  }
+
+  await sleep(400);
   const text = await opts.lastText();
   if (!text) throw new Error(`Could not extract assistant response (${opts.label})`);
   return text;
