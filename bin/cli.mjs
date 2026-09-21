@@ -172,24 +172,50 @@ async function cmdHealth() {
     if (jsonMode) { console.log(JSON.stringify(data, null, 2)); return; }
 
     const serverOk = data.ok ? "✅" : "❌";
-    const extOk = data.extensionConnected ? "✅" : "❌";
-    console.log(`\n  Server:    ${serverOk} ${data.ok ? "running" : "error"}`);
-    console.log(`  Extension: ${extOk} ${data.extensionConnected ? "connected" : "not connected"}`);
-    if (data.backends && typeof data.backends === "object") {
-      for (const [name, info] of Object.entries(data.backends)) {
+    console.log(`\n  Server:    ${serverOk} ${data.ok ? "running" : "error"}  (${url})`);
+
+    const backends = data.backends && typeof data.backends === "object" ? data.backends : null;
+    if (backends) {
+      for (const [name, info] of Object.entries(backends)) {
         const connected = info && typeof info === "object" && info.connected;
-        console.log(`  ${name}: ${connected ? "✅ connected" : "❌ not connected"}`);
+        const mode = info && typeof info === "object" && info.mode ? ` mode=${info.mode}` : "";
+        const pages =
+          info && typeof info === "object" && Array.isArray(info.pages) && info.pages.length
+            ? ` pages=[${info.pages.join(",")}]`
+            : "";
+        console.log(`  ${name}: ${connected ? "✅ connected" : "❌ not connected"}${mode}${pages}`);
       }
+    } else {
+      const extOk = data.extensionConnected ? "✅" : "❌";
+      console.log(`  Extension: ${extOk} ${data.extensionConnected ? "connected" : "not connected"}`);
     }
     console.log();
 
-    if (!data.extensionConnected) {
-      console.log("  💡 Open an AI agent page and ensure the extension is loaded.");
-      console.log();
+    const browserOk = !!backends?.browser?.connected;
+    const extensionOk = backends
+      ? !!backends?.extension?.connected
+      : !!data.extensionConnected;
+    const tips = [];
+    if (!browserOk && !extensionOk) {
+      tips.push("No backend connected. Prefer: wab cdp && wab server --browser --cdp --acp");
+      tips.push("Or load extension/, open a logged-in Doubao tab, then: wab server");
+    } else if (!browserOk) {
+      tips.push("Browser backend off. For Doubao→飞书: wab cdp && restart server with --browser --cdp");
+    } else if (backends?.browser && Array.isArray(backends.browser.pages) && !backends.browser.pages.includes("doubao")) {
+      tips.push("No doubao tab yet. Open https://www.doubao.com/chat/ while logged in");
     }
+    if (!extensionOk && !browserOk) {
+      /* already covered */
+    } else if (!extensionOk && backends?.extension != null) {
+      tips.push("Extension not connected (ok if you only use --browser / --browser-only)");
+    }
+    for (const tip of tips) console.log(`  💡 ${tip}`);
+    if (tips.length) console.log();
   } catch (e) {
     console.error(`❌ Server not reachable at ${url}`);
-    console.error("   Start it with: wab server");
+    console.error("   Start it with: wab server --browser --cdp --acp");
+    console.error("   Or: wab server   (extension path)");
+    console.error("   Docs: see README 故障排除");
     process.exit(1);
   }
 }
@@ -245,16 +271,22 @@ async function cmdSend() {
     const browserOk = !!hd.backends?.browser?.connected;
     if (backend === "browser" && !browserOk) {
       console.error("❌ Browser backend is not connected.");
-      console.error("   Start it with: wab server --browser");
+      console.error("   1) wab cdp");
+      console.error("   2) wab server --browser --cdp --acp");
+      console.error("   3) open https://www.doubao.com/chat/ (logged in)");
+      console.error("   4) wab health");
       process.exit(1);
     }
     if (backend === "extension" && !extensionOk) {
       console.error("❌ Extension not connected. Open an AI agent page first.");
+      console.error("   Load extension/, start: wab server");
       console.error("   Check: wab health");
       process.exit(1);
     }
     if (!backend && !extensionOk && !browserOk) {
-      console.error("❌ No backend connected. Open an AI agent page, or start with: wab server --browser");
+      console.error("❌ No backend connected.");
+      console.error("   Doubao→飞书 (recommended): wab cdp && wab server --browser --cdp --acp");
+      console.error("   Or extension: load extension/ + open Doubao + wab server");
       console.error("   Check: wab health");
       process.exit(1);
     }
@@ -337,8 +369,12 @@ async function cmdSend() {
   } catch (e) {
     if (e.name === "TimeoutError") {
       console.error(`❌ Timeout after ${timeout / 1000}s`);
+      console.error("   Try: -T 300 | shorter prompt | new Doubao chat | wab health");
+      console.error("   If DOM changed: update server/browser-adapters/<agent>.ts");
+      console.error("   See README 故障排除 §发送超时");
     } else {
       console.error(`❌ ${e.message}`);
+      console.error("   See README 故障排除; run: wab health");
     }
     process.exit(1);
   }

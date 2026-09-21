@@ -5,357 +5,430 @@
 </p>
 
 <p align="center">
-  <strong>把网页上的 AI Agent 变成标准 A2A / ACP 端点，让任何 Agent 或编辑器都能调用它们。</strong><br>
-  Bridge online AI agents into <a href="https://google.github.io/A2A/">A2A</a> and <a href="https://agentclientprotocol.com">ACP</a> endpoints.
+  <strong>把网页上的 AI Agent（尤其是豆包）变成 A2A / ACP，让本地 Agent 能指挥它们操作飞书等网页能力。</strong><br>
+  Bridge webpage AI agents into <a href="https://google.github.io/A2A/">A2A</a> and <a href="https://agentclientprotocol.com">ACP</a>.
 </p>
 
 <p align="center">
-  <a href="#快速开始">快速开始</a> ·
-  <a href="#支持的-ai-agent">支持的 Agent</a> ·
-  <a href="#使用方法">使用方法</a> ·
-  <a href="#添加新适配器">添加新适配器</a> ·
-  <a href="#开发">开发</a>
+  <a href="#给-ai-agent-的一页纸">给 AI 的一页纸</a> ·
+  <a href="#推荐路径豆包--飞书">豆包→飞书</a> ·
+  <a href="#安装">安装</a> ·
+  <a href="#激活与自检">激活</a> ·
+  <a href="#故障排除ai-应按此顺序修">故障排除</a> ·
+  <a href="#cli-参考">CLI</a>
 </p>
 
 ---
 
-## 为什么需要这个？
+## 这是干什么的？
 
-很多强大的 AI Agent 只能通过网页操作（比如豆包能操作飞书、WorkBuddy 能生成报告），没有开放 API。
+很多能力**只有网页 Agent 能做**（豆包操作飞书文档/审批/知识库、WorkBuddy 写报告……），没有稳定 OpenAPI。
 
-Web Agent Bridge 通过**浏览器扩展 + 本地服务器**，让你可以：
-
-- 🤖 用任何 A2A 客户端远程操控在线 AI Agent
-- 🔗 让本地 Agent 与在线 Agent 协作完成任务
-- 🛠️ 例如：让本地 Agent 通过 A2A 协议指挥豆包去操作飞书
-
-## 架构
+本项目在本机起一个桥：
 
 ```
-A2A Client ──JSON-RPC──▶ Local Server ──WebSocket──▶ Chrome Extension ──DOM──▶ Online AI Agent
-ACP Client ──stdio/HTTP─▶ Local Server ──Playwright─▶ Chrome (CDP) ─────DOM──▶ Online AI Agent
+本地 AI / 编辑器  ──wab / A2A / ACP──▶  本地 Server
+                                         │
+                    ┌────────────────────┴────────────────────┐
+                    ▼                                         ▼
+            Chrome 扩展 (extension)                  Playwright (browser)
+                    │                                         │
+                    └──────────▶ 已登录的豆包/ChatGPT/… 页面 ◀─┘
 ```
 
-两条后端可以同时开着：
+**主场景**：本地 Agent 用自然语言让**已登录的豆包**去操作飞书，而不是自己发明飞书 API Key。
 
-- **extension**：Chrome 扩展，沿用现有页面和登录态
-- **browser**：Playwright。`--cdp` 连到已经打开的 Chrome，或者用 `wab login` 保存的配置启动
+---
 
-请求里用 `x-backend`（`extension` | `browser`）和 `x-target-agent`（`doubao` | `chatgpt` | `gemini` | `workbuddy`）选择链路和站点。没指定时走默认后端，默认后端没连上会自动换到另一个已连接的后端。
+## 给 AI Agent 的一页纸
 
-## 支持的 AI Agent
+读完本节即可操作。细节见后文。
 
-| Agent | 网站 | CLI 名称 | 说明 |
-|-------|------|----------|------|
-| 🫘 豆包 (Doubao) | [doubao.com/chat](https://www.doubao.com/chat/) | `doubao` | 对话、飞书操作等 |
-| 🤖 ChatGPT | [chatgpt.com](https://chatgpt.com/) | `chatgpt` | OpenAI GPT 对话 |
-| ✨ Gemini | [gemini.google.com](https://gemini.google.com/app) | `gemini` | Google Gemini 对话 |
-| 💼 WorkBuddy | [workbuddy.cn/app](https://www.workbuddy.cn/app) | `workbuddy` | 文档生成、数据分析、深度研究 |
+### 目标状态（全部满足再发任务）
 
-> 添加新 Agent 只需写一个 JS 适配器，参见 [添加新适配器](#添加新适配器)。
+1. `which wab` 有输出，`wab --version` 正常  
+2. `wab server --browser --cdp --acp` 已在跑（或等价进程）  
+3. `curl -s http://127.0.0.1:9222/json/version` 成功（CDP 开着）  
+4. 浏览器里已打开并**登录** https://www.doubao.com/chat/  
+5. `wab health` 显示 `browser: ✅ connected`（最好 `pages` 含 `doubao`）  
+6. 再执行：`wab send -b browser -a doubao "具体飞书任务…"`
 
-## 快速开始
+### 最短激活（推荐：复用用户已登录的 Dia/Chrome）
 
-### 1. 安装 & 启动服务器
+```bash
+# 在仓库根目录（首次）
+npm install && npm link
+npx playwright install chromium   # browser 后端需要
+
+# 每次要用豆包前
+wab cdp                                      # 给 Dia 打开 remote debugging（会短暂重启 Dia，登录态保留）
+wab server --browser --cdp --acp             # 另开终端常驻
+wab health                                   # 确认 browser connected
+wab send -b browser -a doubao "1+1等于几？只回答数字"   # 冒烟
+```
+
+### 发飞书类任务时怎么写 prompt
+
+对豆包说「操作说明」，不要写 API：
+
+```bash
+wab send -b browser -a doubao -T 300 \
+  "打开飞书，在文档《周报》末尾追加今天三条进展，保存后把文档链接发回给我"
+```
+
+原则：指明对象（文档/群/审批名）→ 要做什么 → 要求返回可验证结果（链接/原文摘要）。一步一事；失败再拆小步。
+
+### 失败时 AI 必须做的事
+
+1. 把 **stderr / `wab health` / 关键错误原文** 贴给用户（或自己读）  
+2. 按 [故障排除](#故障排除ai-应按此顺序修) **从上到下** 修，不要跳步重装一切  
+3. 需要用户手动登录/点验证码时：**停下来请用户操作**，不要伪造 cookie  
+4. 页面结构变了（选择器失效）：用 DevTools 看 DOM，改 `server/browser-adapters/doubao.ts` 与 `extension/adapters/doubao.js`，再冒烟  
+
+Agent Skill（更细的操作手册）：[`skills/web-agent-bridge/SKILL.md`](skills/web-agent-bridge/SKILL.md)
+
+```bash
+mkdir -p ~/.agents/skills ~/.cursor/skills
+ln -sfn "$(pwd)/skills/web-agent-bridge" ~/.agents/skills/web-agent-bridge
+ln -sfn "$(pwd)/skills/web-agent-bridge" ~/.cursor/skills/web-agent-bridge
+```
+
+---
+
+## 推荐路径：豆包 → 飞书
+
+| 步骤 | 谁做 | 做什么 |
+|------|------|--------|
+| 1 | 用户 | Dia/Chrome 已登录豆包；豆包侧已能打开飞书（插件/企业绑定按用户日常用法） |
+| 2 | AI/用户 | `wab cdp` → `wab server --browser --cdp --acp` |
+| 3 | AI | `wab health` 确认 browser |
+| 4 | AI | `wab send -b browser -a doubao "…飞书任务…"` |
+| 5 | 豆包 | 在真实浏览器里点飞书；结果经 stdout 回到本地 Agent |
+
+**不要**默认 `wab login` 开一个全新无登录浏览器——飞书企业能力通常绑在用户日常浏览器会话上。  
+仅在没有 Dia、或明确要独立 profile 时用 `wab login doubao`。
+
+其它 Agent：`chatgpt` / `gemini` / `workbuddy`，同样 `-a` / `-b`。
+
+---
+
+## 安装
+
+### 要求
+
+- macOS（`wab cdp` 针对 Dia；Chrome 可用手动 `--remote-debugging-port=9222`）  
+- Node.js ≥ 18  
+- 网络能访问豆包 / 目标站点  
+
+### 从源码安装（开发/自用）
 
 ```bash
 git clone https://github.com/IchenDEV/web-agent-bridge.git
 cd web-agent-bridge
 npm install
-npm link          # 注册 wab 命令（可选）
-wab server        # 或 npm run server
+npm link                    # 注册全局命令 wab
+npx playwright install chromium
+wab --version
 ```
 
-> 服务器默认在 `http://127.0.0.1:3000` 启动。可以用 `wab server -p 8080` 更改端口。
-
-### 2. 安装浏览器扩展
-
-1. Chrome 地址栏输入 `chrome://extensions`
-2. 右上角开启 **开发者模式**
-3. 点击 **「加载已解压的扩展程序」** → 选择项目中的 `extension/` 目录
-4. 确认扩展列表中出现 **Web Agent Bridge**，图标旁无 ❗ 标记
-
-> 💡 **图标提示**：扩展图标上的标记代表连接状态
-> - 无标记 = ✅ 已连接
-> - **!** 红色 = ❌ 服务器未运行或断开
-> - **…** 黄色 = 🔄 正在连接中
-
-### 3. 打开 AI Agent 页面
-
-打开以下任一页面并**确保已登录**：
-
-- 豆包: https://www.doubao.com/chat/
-- WorkBuddy: https://www.workbuddy.cn/app
-
-### 4. 发送消息
-
-#### 方式一：`wab` CLI（推荐，AI 可直接调用）
+### 从 npm（若已发布）
 
 ```bash
-# 直接发问，stdout 返回纯文本
-wab send "1+1等于几？"
-# → 2
-
-# 指定目标 Agent
-wab send -a doubao "帮我操作飞书"
-wab send -a workbuddy "写一份周报"
-
-# 管道输入
-echo "写一首关于秋天的诗" | wab send
-
-# 多轮对话
-wab send -c ctx-abc "继续说"
-
-# JSON 输出（供程序解析）
-wab send --json "hello"
+npm install -g web-agent-bridge
+npx playwright install chromium
 ```
 
-> 💡 `wab send` 输出纯文本，AI Agent 可以直接解析 stdout，无需构造 HTTP 请求。
+### 可选：Chrome 扩展后端
 
-#### 方式二：使用 agentalk（通用 A2A CLI 客户端）
+若不用 CDP、只用扩展：
 
-```bash
-# 安装
-npm install -g agentalk
+1. `chrome://extensions` → 开发者模式 →「加载已解压」→ 选仓库 `extension/`  
+2. `wab server`（不要加 `--browser-only`）  
+3. 打开并登录豆包页；扩展图标无 ❗  
 
-# 查看 Agent 能力
-agentalk agent http://127.0.0.1:3000
+图标：无标记=已连服务器；❗=服务器没开；…=连接中。
 
-# 发送消息
-agentalk send http://127.0.0.1:3000 -m "帮我写一首诗"
+---
 
-# 流式响应
-agentalk stream http://127.0.0.1:3000 -m "生成一份分析报告"
-```
+## 激活与自检
 
-> [agentalk](https://www.npmjs.com/package/agentalk) 是通用 A2A 协议 CLI 工具，支持流式响应、任务管理等完整功能。
-
-#### 方式三：curl / HTTP
+### A. CDP + Playwright（推荐）
 
 ```bash
-curl -X POST http://127.0.0.1:3000/a2a \
-  -H "Content-Type: application/json" \
-  -H "A2A-Version: 1.0" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "SendMessage",
-    "params": {
-      "message": {
-        "messageId": "msg-001",
-        "contextId": "ctx-001",
-        "taskId": "",
-        "role": "ROLE_USER",
-        "parts": [{"text": "1+1等于几？", "mediaType": "text/plain"}]
-      }
-    }
-  }'
-```
+# 1) CDP 是否已开？
+curl -s http://127.0.0.1:9222/json/version || wab cdp
 
-### 确认连接状态
+# 2) 是否有豆包标签？
+curl -s http://127.0.0.1:9222/json/list | grep -i doubao || open "https://www.doubao.com/chat/"
 
-```bash
+# 3) 起服务
+wab server --browser --cdp --acp
+# 日志应类似：Attached over CDP ... — open: doubao
+
+# 4) 健康检查
 wab health
-# 或
-curl http://127.0.0.1:3000/health
+# 期望：browser: ✅ connected
+
+# 5) 冒烟
+wab send -b browser -a doubao "只回复：pong"
 ```
 
-或点击 Chrome 工具栏的扩展图标，在弹出面板中查看连接状态。
+### B. 扩展后端
 
-## CLI 命令参考
+```bash
+wab server
+# 加载 extension/，打开已登录豆包页
+wab health    # Extension: ✅
+wab send -a doubao "只回复：pong"
+```
+
+### C. 独立 Playwright 配置（无 Dia）
+
+```bash
+wab login doubao          # 弹出浏览器，用户手动登录后关掉窗口保存状态
+wab server --browser      # 无 --cdp 时用 storage-state
+wab send -b browser -a doubao "只回复：pong"
+```
+
+### `wab health` 怎么读
+
+| 输出 | 含义 | 下一步 |
+|------|------|--------|
+| Server not reachable | 没起服务 | `wab server ...` |
+| browser not connected | 没挂上 Playwright/CDP | `wab cdp` 后重启带 `--browser --cdp` 的 server |
+| extension not connected | 扩展没连上 | 加载扩展、开 Agent 页、检查扩展设置里的 URL |
+| connected 但 send 超时 | 页未登录 / DOM 变了 / 网慢 | 见故障排除 |
+
+也可用：`curl -s http://127.0.0.1:3000/health | jq`。
+
+---
+
+## 使用方法
+
+### CLI（AI 首选）
+
+```bash
+wab send -b browser -a doubao "帮我……"     # stdout = 纯文本回复
+wab send -j -a doubao "…"                  # JSON（含 contextId，多轮用 -c）
+wab send -c <contextId> "继续"             # 多轮
+wab send -T 300 -a doubao "长任务……"      # 加长超时
+echo "写一首诗" | wab send
+```
+
+### ACP（编辑器）
+
+```bash
+wab acp                         # 转发到已运行的 wab server
+wab acp -b browser --cdp auto   # 本进程直接 Playwright
+# HTTP：wab server --acp → POST http://127.0.0.1:3000/acp
+```
+
+会话 `_meta`：`x-target-agent`、`x-backend`。斜杠：`/status` `/agent` `/backend`。
+
+### A2A
+
+- Card：`GET http://127.0.0.1:3000/.well-known/agent-card.json`  
+- JSON-RPC：`POST /a2a`  
+- 也可用 [agentalk](https://www.npmjs.com/package/agentalk)
+
+### 支持的站点
+
+| Agent | URL | `-a` | 典型用途 |
+|-------|-----|------|----------|
+| 豆包 | https://www.doubao.com/chat/ | `doubao` | **飞书操作**、对话、插件 |
+| ChatGPT | https://chatgpt.com/ | `chatgpt` | 对话 |
+| Gemini | https://gemini.google.com/app | `gemini` | 对话 |
+| WorkBuddy | https://www.workbuddy.cn/app | `workbuddy` | 报告 / 研究 |
+
+---
+
+## 故障排除（AI 应按此顺序修）
+
+每步做完再 `wab health` 或重试 `wab send`。需要人交互时**明确请用户**。
+
+### 1. 命令不存在
+
+```text
+wab: command not found
+```
+
+```bash
+cd /path/to/web-agent-bridge && npm link
+hash -r && which wab
+```
+
+### 2. 服务器不可达
+
+```text
+Server not reachable at http://127.0.0.1:3000
+```
+
+- 另开终端：`wab server --browser --cdp --acp`  
+- 端口占用：换 `-p 3001`，发送加 `-s http://127.0.0.1:3001`  
+- 看 server 终端是否有启动报错（缺依赖则 `npm install`）
+
+### 3. CDP / 浏览器附着失败
+
+```text
+No CDP endpoint / CDP attach failed / browser not connected
+```
+
+| 检查 | 命令 / 动作 |
+|------|-------------|
+| 9222 是否通 | `curl -s http://127.0.0.1:9222/json/version` |
+| 不通 | `wab cdp`（会重启 Dia；保留用户数据目录） |
+| 仍不通 | 用户手动：`open -a Dia --args --remote-debugging-port=9222` 或 Chrome 同理 |
+| 通了但 server 仍旧 | **重启** `wab server --browser --cdp`（CDP 要在 server 启动前就绪） |
+| Playwright 缺失 | `npm install` + `npx playwright install chromium` |
+
+注意：`wab cdp` 会短暂退出 Dia；告诉用户「窗口会闪一下，登录态还在」。
+
+### 4. 未登录 / 登录过期
+
+症状：打开的是登录页；回复让登录；或一直超时无助手气泡。
+
+**AI 不要自己填密码。** 请用户：
+
+1. 在 Dia 里打开豆包，完成登录（含扫码/SSO）  
+2. 确认能手动发一句聊天  
+3. 若走飞书：在豆包里手动点开一次飞书/相关插件，确认有权限  
+4. 再 `wab send …`
+
+独立 profile：`wab login doubao` 后等用户在弹出窗登录。
+
+### 5. 没有豆包标签
+
+```text
+no agent tabs / pages 不含 doubao
+```
+
+```bash
+open "https://www.doubao.com/chat/"
+# 等页面可输入后
+wab send -b browser -a doubao "只回复：ok"
+```
+
+Backend 也可在发送时 `newPage` 打开 URL，但**新标签可能没有企业登录态**——优先复用已有标签。
+
+### 6. 发送超时 / 无新回复
+
+```text
+Timeout: no new assistant message
+Timeout after Ns
+```
+
+按概率：
+
+1. **网慢 / 豆包回答长**：`-T 300` 或更高；任务拆短  
+2. **页面还在加载**：等输入框出现再发；刷新豆包页  
+3. **旧对话太乱**：用户点「新对话」再试  
+4. **发不出去**：看是否卡住验证码、上传、权限弹窗 → 请用户点掉  
+5. **DOM/选择器过时**（站点改版）：  
+   - CDP 下用 DevTools 看输入框、发送按钮、助手消息节点  
+   - 改 `server/browser-adapters/doubao.ts`（及扩展侧 `extension/adapters/doubao.js`）  
+   - 本地冒烟：`LIVE=1 npm run test:acp:live`  
+6. **连错后端**：显式 `-b browser -a doubao`，避免 auto 指到未就绪的 extension  
+
+### 7. 扩展 ❗
+
+- 先保证 `wab server`（非 `--browser-only`）在跑  
+- 扩展设置里服务器 URL 与实际端口一致  
+- `chrome://extensions` 重载扩展 → 刷新豆包页  
+
+### 8. 页面/浏览器版本怪异
+
+- 仅支持 Chromium 系（Chrome / Dia / Edge）；不要对 Safari 寄 CDP 期望  
+- 企业策略禁用 remote debugging → 改用扩展后端或 `wab login`  
+- 多开 Chromium 抢 9222：`lsof -i :9222`，关掉多余实例或换 `WAB_CDP_PORT`  
+
+### 9. ACP / 协议
+
+- stdio 日志在 **stderr**，不要当 JSON-RPC 解析  
+- HTTP 下 `available_commands_update` 在**首次 prompt** 才保证到达（不是 `session/new` 当时）  
+- `providers` / `nes` 为 stub；不要依赖改 LLM 供应商配置  
+
+### 10. 仍然失败时收集的信息
+
+请用户或 AI 汇总后重试/提 issue：
+
+```bash
+wab --version
+node -v
+wab health -j
+curl -s http://127.0.0.1:9222/json/version
+curl -s http://127.0.0.1:9222/json/list | head
+# server 终端最后 50 行
+# 失败命令的完整 stderr
+```
+
+---
+
+## CLI 参考
 
 ```
 wab <command> [options]
 
 Commands:
-  server              启动服务器（默认 Chrome 扩展后端）
-  send <message>      发送消息并输出 AI 回复（纯文本）
-  acp                 在 stdin/stdout 上提供 ACP（给编辑器调用）
-  login [agent]       打开浏览器登录，供 Playwright 后端复用
-  agent               显示 Agent Card（能力 & 技能）
-  health              检查服务器和各后端连接状态
-  pack                打包扩展为 ZIP
-  publish [--dry-run] 类型检查 + 打包 + 发布到 npm
+  server              启动本地服务
+  send <message>      发送并打印 AI 回复（stdout 纯文本）
+  acp                 ACP（stdin/stdout，给编辑器）
+  cdp                 重启 Dia 并打开 remote debugging
+  login [agent]       Playwright 登录并保存 storage-state
+  agent               Agent Card
+  health              健康检查
+  pack / publish      打包扩展 / 发布 npm
 
-Options (server):
-  -p, --port <port>   端口（默认 3000）
-  --browser           同时启动 Playwright 后端
-  --browser-only      只用 Playwright，不监听扩展 WebSocket
-  --cdp [url]         Playwright 连接已打开的 Chrome（默认 http://127.0.0.1:9222）
-  --acp               同时在 /acp 提供 ACP
+server:
+  -p, --port          默认 3000
+  --browser           启用 Playwright
+  --browser-only      仅 Playwright
+  --cdp [url|auto]    附着已开浏览器
+  --acp               启用 /acp
 
-Options (send):
-  -a, --agent <name>  目标 Agent: doubao | chatgpt | gemini | workbuddy
-  -b, --backend <name> 链路: extension | browser（默认自动）
-  -m, --message <msg> 消息文本
-  -s, --server <url>  服务器地址 (默认 http://127.0.0.1:3000)
-  -c, --context <id>  上下文 ID（多轮对话）
-  -T, --timeout <sec> 超时秒数 (默认 180)
-  -j, --json          输出原始 JSON
+send:
+  -a, --agent         doubao|chatgpt|gemini|workbuddy
+  -b, --backend       extension|browser
+  -s, --server        默认 http://127.0.0.1:3000
+  -c, --context       多轮 contextId
+  -T, --timeout       秒，默认 180
+  -j, --json
 
 环境变量:
-  WAB_SERVER              默认服务器 URL
-  PORT                    服务器端口
-  WAB_USER_DATA_DIR       Playwright 配置目录
-  WAB_HEADLESS=0          显示 Playwright 窗口
+  WAB_SERVER  PORT  CDP_URL  WAB_USER_DATA_DIR  WAB_HEADLESS=0  WAB_CDP_PORT
 ```
 
-Chrome 需要远程调试时：
+---
 
-Chrome / Dia 复用已登录会话：
-
-```bash
-wab cdp                                 # 重启 Dia 并打开 remote debugging（登录态保留）
-wab server --browser --cdp --acp        # 附着到 Dia，驱动已打开的豆包标签
-wab send -b browser -a doubao "1+1等于几？"
-LIVE=1 npm run test:e2e:acp             # 端到端真实发消息（需先 wab cdp）
-```
-
-也可用扩展链路：在 Dia 里加载 `extension/`，再 `wab server`（不必 CDP）。
-
-```bash
-npx playwright install chromium
-chrome --remote-debugging-port=9222
-wab server --browser --cdp http://127.0.0.1:9222 --acp
-```
-
-编辑器把本进程当 ACP agent 启动：
-
-```bash
-wab acp                  # 转发到已运行的 wab server（扩展链路）
-wab acp -b browser       # 不依赖服务器，直接用 Playwright
-wab login doubao         # 先登录，再让 Playwright 复用这个配置
-```
-
-## ACP
-
-稳定协议版本是 1。实现的方法：
-
-| 方法 | 作用 |
-|------|------|
-| `initialize` | 协商版本。不提供文件系统和终端能力 |
-| `session/new` | 创建会话。`_meta.x-target-agent` / `_meta.x-backend` 会记在会话上 |
-| `session/prompt` | 把文本发给所选后端，并用 `session/update` 流式返回 |
-| `session/cancel` | 中断当前这一轮 |
-
-不支持 `session/load`。stdio 模式下日志写到 stderr，避免污染 JSON-RPC。
-
-## 扩展设置
-
-点击扩展图标 → **「设置」** 按钮，可以修改：
-
-- **服务器地址**：默认 `http://127.0.0.1:3000`，修改后扩展自动重连
-
-### A2A 端点
+## 架构与端点
 
 | 端点 | 用途 |
 |------|------|
-| `GET /health` | 健康检查（含扩展连接状态） |
-| `GET /.well-known/agent-card.json` | A2A Agent Card |
-| `POST /a2a` | A2A JSON-RPC 端点 |
-| `POST /acp` | ACP 端点（`wab server --acp` 时启用） |
-| `ws://127.0.0.1:3000/ws` | 扩展 ↔ 服务器 WebSocket |
-| `ws://127.0.0.1:3000/acp` | ACP WebSocket（与 `/ws` 分开） |
+| `GET /health` | 健康与后端状态 |
+| `GET /.well-known/agent-card.json` | A2A Card |
+| `POST /a2a` | A2A JSON-RPC |
+| `POST /acp` · `ws://…/acp` | ACP（需 `--acp`） |
+| `ws://…/ws` | 扩展通道 |
 
-## 添加新适配器
+ACP v1：会话 `new/list/load/resume/close/delete/fork`、`prompt/cancel`、配置与斜杠命令。不提供 fs/terminal/工具权限（网页桥接场景）。
 
-支持新的在线 AI Agent 只需 3 步：
+---
 
-### 1. 创建适配器文件
+## 添加新适配器 / 开发
 
-在 `extension/adapters/` 下创建 `your-agent.js`：
-
-```javascript
-const YourAgentAdapter = (() => {
-  async function sendAndWaitForResponse(text, timeoutSec = 120) {
-    // 1. 找到输入框
-    // 2. 清空 → 输入文本 → 点击发送
-    // 3. 等待新的 AI 回复出现
-    // 4. 等待回复文本稳定（流式输出结束）
-    // 5. 提取并返回文本
-  }
-
-  return { sendAndWaitForResponse };
-})();
-```
-
-### 2. 注册到扩展
-
-**`manifest.json`** — 添加 host_permissions 和 content_scripts
-
-**`background.js`** — 在 `AGENT_TAB_PATTERNS` 中添加匹配规则
-
-**`content.js`** — adapter 变量会自动检测全局对象（如 `YourAgentAdapter`）
-
-### 3. 添加 Agent Card 技能
-
-**`server/agent-card.ts`** — 在 `skills` 数组中添加新技能描述
-
-> 参考 `extension/adapters/doubao.js` 和 `workbuddy.js` 的实现。
-
-## 项目结构
-
-```
-web-agent-bridge/
-├── server/                    # A2A 服务器 (TypeScript)
-│   ├── index.ts               #   入口：Express + WS + 可选 ACP
-│   ├── agent-card.ts          #   Agent Card
-│   ├── bridge-executor.ts     #   A2A ↔ 后端
-│   ├── message-backend.ts     #   后端接口与路由
-│   ├── ws-bridge.ts           #   Chrome 扩展 WebSocket
-│   ├── browser-backend.ts     #   Playwright 后端
-│   ├── browser-adapters/      #   各站点的页面操作
-│   ├── acp-agent.ts           #   ACP Agent
-│   ├── acp-stdio.ts           #   ACP stdin/stdout
-│   └── acp-http.ts            #   ACP HTTP / WebSocket
-├── extension/                 # Chrome 扩展 (Manifest V3)
-│   ├── manifest.json          #   扩展配置
-│   ├── background.js          #   Service Worker
-│   ├── content.js             #   Content Script
-│   ├── popup.html / popup.js  #   状态弹窗
-│   ├── options.html / options.js  # 设置页
-│   ├── icons/                 #   扩展图标
-│   └── adapters/
-│       ├── doubao.js          #   豆包适配器
-│       └── workbuddy.js       #   WorkBuddy 适配器
-├── test/                      # 测试脚本
-├── bin/cli.mjs                # CLI 入口 (send/agent/health/server)
-├── package.json
-└── LICENSE                    # MIT
-```
-
-## 故障排除
-
-### 扩展图标显示 ❗
-
-服务器未运行。运行 `npm run server` 后扩展会自动重连。
-
-### 发送消息后超时
-
-1. 确认 AI Agent 页面已打开并**已登录**
-2. 确认页面不是空白/加载中状态
-3. 在 `chrome://extensions` 中重新加载扩展，然后刷新 AI Agent 页面
-4. 打开一个**新的对话**（旧对话消息太多可能影响检测）
-
-### DOM 选择器失效
-
-AI Agent 网站更新后可能需要调整适配器中的选择器。用 DevTools 检查新的 DOM 结构，修改 `adapters/*.js` 中的 `SELECTORS`。
-
-## 开发
+扩展适配器：`extension/adapters/` + `manifest.json` / `background.js`。  
+Playwright 适配器：`server/browser-adapters/`（`page.evaluate` 内勿写命名内部函数，避免 tsx `__name`）。  
+Agent Card：`server/agent-card.ts`。
 
 ```bash
-wab server                              # 启动开发服务器
-wab health                              # 检查连接
-wab send "test"                         # 快速测试
-wab send -a doubao "test"               # 指定 Agent
-npx tsx test/stress-test.ts             # 鲁棒性压力测试 (5 条连发)
-npx tsx test/a2a-protocol-verify.ts     # A2A 协议合规
-npm run test:acp                        # ACP 协议合规（进程内）
-npm run test:e2e:acp                    # ACP + 浏览器后端端到端
-LIVE=1 npm run test:e2e:acp             # 同上，并真正发一条网页对话（需先 wab login）
-wab pack                                # 打包扩展
-wab publish --dry-run                   # 试跑发布流程
+npm run test:acp
+LIVE=1 npm run test:acp:live    # 需 CDP + 已登录豆包
+LIVE=1 npm run test:e2e:acp
+wab pack
 ```
+
+项目结构见仓库内 `server/`、`extension/`、`bin/cli.mjs`、`skills/`、`test/`。
+
+---
 
 ## License
 

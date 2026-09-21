@@ -19,6 +19,15 @@
     "doubao",
     "chrome-extension"
   ],
+  "files": [
+    "bin/",
+    "server/",
+    "extension/",
+    "skills/",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "server": "node --import tsx server/index.ts",
     "build:server": "tsc -p server/tsconfig.json",
@@ -39,14 +48,6 @@
     "wab": "bin/cli.mjs",
     "web-agent-bridge": "bin/cli.mjs"
   },
-  "files": [
-    "bin/",
-    "server/",
-    "extension/",
-    "package.json",
-    "README.md",
-    "LICENSE"
-  ],
   "dependencies": {
     "@a2a-js/sdk": "^1.1.0",
     "@agentclientprotocol/sdk": "^1.4.0",
