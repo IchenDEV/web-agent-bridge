@@ -336,6 +336,20 @@ web-agent-bridge/
 2. 确认页面不是空白/加载中状态
 3. 在 `chrome://extensions` 中重新加载扩展，然后刷新 AI Agent 页面
 4. 打开一个**新的对话**（旧对话消息太多可能影响检测）
+5. 豆包读飞书/逐字稿等长任务请把超时调大：`wab send -T 600 …`（浏览器后端默认等发送按钮恢复 + 动画消失，不再只靠文字静止）
+
+### 豆包任务未结束就返回 / 追问插队
+
+浏览器后端本身是串行的，不会并发 `send`。但若适配器把「文字短暂不变」误判成完成，就会提前 `TASK_STATE_COMPLETED`，下一条消息会插进仍在跑的豆包回合（例如工具调用、读会议纪要）。
+
+豆包适配器现在把这些也算 busy，须全部结束后才返回：
+
+- 发送按钮 `disabled` / `send-msg-btn-di…`
+- 聊天区 `animate-spin` / loading / spinner
+- 短状态句（「正在加载技能」「正在搜索」等）
+- 忙过之后再额外空闲数秒，避免工具间隙误完成
+
+若仍提前返回：在页面 DevTools 看生成中是否还有上述信号；没有的话需要更新 `server/browser-adapters/doubao.ts` 与 `extension/adapters/doubao.js`。
 
 ### DOM 选择器失效
 
