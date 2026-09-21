@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server as HttpServer } from "http";
 import { EventEmitter } from "events";
+import type { MessageBackend, StreamChunk as BackendStreamChunk } from "./message-backend.js";
 
 // ── Wire protocol between Server ↔ Extension ──
 
@@ -76,7 +77,8 @@ class AsyncQueue<T> {
 
 // ── WebSocket Bridge Server ──
 
-export class WsBridge extends EventEmitter {
+export class WsBridge extends EventEmitter implements MessageBackend {
+  readonly name = "extension";
   private wss: WebSocketServer | null = null;
   private client: WebSocket | null = null;
   private pendingRequests = new Map<

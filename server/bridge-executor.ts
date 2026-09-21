@@ -2,7 +2,7 @@ import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/s
 import { AgentEvent } from "@a2a-js/sdk/server";
 import { TaskState, Role } from "@a2a-js/sdk";
 import type { Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent } from "@a2a-js/sdk";
-import type { WsBridge } from "./ws-bridge.js";
+import { BackendRouter, type MessageBackend } from "./message-backend.js";
 
 function isoNow(): string {
   return new Date().toISOString();
@@ -13,12 +13,15 @@ function isoNow(): string {
  * via WebSocket, waits for the AI response, and publishes it as a Task artifact.
  */
 export class BridgeExecutor implements AgentExecutor {
-  constructor(private bridge: WsBridge) {}
+  constructor(private bridge: MessageBackend) {}
 
   async execute(ctx: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
     const userText = this.extractText(ctx);
-    const targetAgent = this.extractTargetAgent(ctx);
-    console.log(`[BridgeExecutor] Task ${ctx.taskId} | agent: ${targetAgent || "auto"} | text: "${userText.slice(0, 80)}"`);
+    const targetAgent = this.extractMetaValue(ctx, "x-target-agent");
+    const backendName = this.extractMetaValue(ctx, "x-backend");
+    console.log(
+      `[BridgeExecutor] Task ${ctx.taskId} | backend: ${backendName || "auto"} | agent: ${targetAgent || "auto"} | text: "${userText.slice(0, 80)}"`,
+    );
 
     const task: Task = {
       id: ctx.taskId,
@@ -31,7 +34,10 @@ export class BridgeExecutor implements AgentExecutor {
     eventBus.publish(AgentEvent.task(task));
 
     try {
-      const responseText = await this.bridge.sendAndWait(ctx.taskId, userText, 180_000, targetAgent);
+      const responseText =
+        this.bridge instanceof BackendRouter
+          ? await this.bridge.sendAndWaitVia(backendName, ctx.taskId, userText, 180_000, targetAgent)
+          : await this.bridge.sendAndWait(ctx.taskId, userText, 180_000, targetAgent);
 
       const artifactEvent: TaskArtifactUpdateEvent = {
         taskId: ctx.taskId,
@@ -116,20 +122,17 @@ export class BridgeExecutor implements AgentExecutor {
   }
 
   /**
-   * Extract optional target agent from request metadata.
-   * Checks: 1) userMessage.metadata  2) top-level params metadata  3) userMessage.extensions
+   * Read an optional routing field from message metadata, then request metadata.
    */
-  private extractTargetAgent(ctx: RequestContext): string | undefined {
-    // Try message-level metadata first (most reliable path)
+  private extractMetaValue(ctx: RequestContext, key: string): string | undefined {
     const msgMeta = ctx.userMessage.metadata as Record<string, unknown> | undefined;
-    if (msgMeta?.["x-target-agent"]) {
-      return String(msgMeta["x-target-agent"]);
+    if (msgMeta?.[key] != null && msgMeta[key] !== "") {
+      return String(msgMeta[key]);
     }
 
-    // Try top-level request metadata (from params.metadata)
-    const reqMeta = (ctx as any).metadata as Record<string, unknown> | undefined;
-    if (reqMeta?.["x-target-agent"]) {
-      return String(reqMeta["x-target-agent"]);
+    const reqMeta = (ctx as { metadata?: Record<string, unknown> }).metadata;
+    if (reqMeta?.[key] != null && reqMeta[key] !== "") {
+      return String(reqMeta[key]);
     }
 
     return undefined;

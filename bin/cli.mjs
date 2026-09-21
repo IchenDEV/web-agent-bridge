@@ -4,12 +4,14 @@
  * wab — Web Agent Bridge CLI
  *
  * Usage:
- *   wab server  [-p port]                    Start the A2A server
- *   wab send    [-a agent] "message"         Send a message, print response
- *   wab agent   [-s url]                     Show Agent Card
- *   wab health  [-s url]                     Check connection status
- *   wab pack                                 Package extension as ZIP
- *   wab publish [--dry-run]                  Publish to npm
+ *   wab server  [-p port] [--browser] [--acp]   Start the server
+ *   wab send    [-a agent] [-b backend] "msg"  Send a message, print response
+ *   wab acp     [-b backend]                   ACP agent on stdin/stdout
+ *   wab login   [agent]                        Log in via Playwright
+ *   wab agent   [-s url]                       Show Agent Card
+ *   wab health  [-s url]                       Check connection status
+ *   wab pack                                   Package extension as ZIP
+ *   wab publish [--dry-run]                    Publish to npm
  *
  * AI agents can call `wab send` and parse stdout — no HTTP needed.
  */
@@ -75,22 +77,58 @@ async function cmdServer() {
     process.exit(1);
   }
 
+  const browserOnly = hasFlag("--browser-only", null);
+  const enableBrowser = browserOnly || hasFlag("--browser", null) || args.includes("--cdp");
+  const enableAcp = hasFlag("--acp", null);
+  const cdp = cdpUrl();
+
   console.log(`
   ╔════════════════════════════════════════╗
   ║       Web Agent Bridge  v${VERSION.padEnd(8)}   ║
   ╠════════════════════════════════════════╣
   ║  A2A:   http://127.0.0.1:${String(port).padEnd(5)}      ║
-  ║  WS:    ws://127.0.0.1:${String(port).padEnd(5)}/ws    ║
+  ║  WS:    ws://127.0.0.1:${String(port).padEnd(5)}/ws    ║${enableAcp ? `\n  ║  ACP:   http://127.0.0.1:${String(port).padEnd(5)}/acp   ║` : ""}
   ╚════════════════════════════════════════╝
 `);
 
-  const env = { ...process.env, PORT: port };
+  const env = {
+    ...process.env,
+    PORT: String(port),
+    ENABLE_BROWSER: enableBrowser ? "1" : "",
+    BROWSER_ONLY: browserOnly ? "1" : "",
+    ENABLE_ACP: enableAcp ? "1" : "",
+  };
+  if (cdp) env.CDP_URL = cdp;
+
   const child = spawn(process.execPath, ["--import", "tsx", serverEntry], {
     env, stdio: "inherit", cwd: root,
   });
   child.on("exit", (code) => process.exit(code ?? 1));
   process.on("SIGINT", () => child.kill("SIGINT"));
   process.on("SIGTERM", () => child.kill("SIGTERM"));
+}
+
+function cdpUrl() {
+  const idx = args.indexOf("--cdp");
+  if (idx === -1) return "";
+  const next = args[idx + 1];
+  if (next && !next.startsWith("-")) return next;
+  return "auto";
+}
+
+// ── cdp (attach Dia / discover) ──
+
+async function cmdCdp() {
+  const entry = join(root, "server", "cdp-attach-dia.ts");
+  if (!existsSync(entry)) {
+    console.error("❌ Cannot find server/cdp-attach-dia.ts");
+    process.exit(1);
+  }
+  console.error("Attaching CDP to Dia (will briefly restart Dia, login state kept)...");
+  const child = spawn(process.execPath, ["--import", "tsx", entry], {
+    env: process.env, stdio: "inherit", cwd: root,
+  });
+  child.on("exit", (code) => process.exit(code ?? 1));
 }
 
 // ── agent ──
@@ -137,6 +175,12 @@ async function cmdHealth() {
     const extOk = data.extensionConnected ? "✅" : "❌";
     console.log(`\n  Server:    ${serverOk} ${data.ok ? "running" : "error"}`);
     console.log(`  Extension: ${extOk} ${data.extensionConnected ? "connected" : "not connected"}`);
+    if (data.backends && typeof data.backends === "object") {
+      for (const [name, info] of Object.entries(data.backends)) {
+        const connected = info && typeof info === "object" && info.connected;
+        console.log(`  ${name}: ${connected ? "✅ connected" : "❌ not connected"}`);
+      }
+    }
     console.log();
 
     if (!data.extensionConnected) {
@@ -155,12 +199,17 @@ async function cmdHealth() {
 async function cmdSend() {
   const url = getServerUrl();
   const agent = getFlag("--agent", "-a") || undefined;
+  const backend = getFlag("--backend", "-b") || undefined;
   const contextId = getFlag("--context", "-c") || crypto.randomUUID();
   const taskId = getFlag("--task", "-t") || "";
   const timeout = parseInt(getFlag("--timeout", "-T") || "180", 10) * 1000;
 
   if (agent && !KNOWN_AGENTS.includes(agent)) {
     console.error(`❌ Unknown agent "${agent}". Available: ${KNOWN_AGENTS.join(", ")}`);
+    process.exit(1);
+  }
+  if (backend && backend !== "extension" && backend !== "browser") {
+    console.error(`❌ Unknown backend "${backend}". Available: extension, browser`);
     process.exit(1);
   }
 
@@ -192,8 +241,20 @@ async function cmdSend() {
     const h = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
     const hd = await h.json();
     if (!hd.ok) { console.error("❌ Server error"); process.exit(1); }
-    if (!hd.extensionConnected) {
+    const extensionOk = !!hd.extensionConnected;
+    const browserOk = !!hd.backends?.browser?.connected;
+    if (backend === "browser" && !browserOk) {
+      console.error("❌ Browser backend is not connected.");
+      console.error("   Start it with: wab server --browser");
+      process.exit(1);
+    }
+    if (backend === "extension" && !extensionOk) {
       console.error("❌ Extension not connected. Open an AI agent page first.");
+      console.error("   Check: wab health");
+      process.exit(1);
+    }
+    if (!backend && !extensionOk && !browserOk) {
+      console.error("❌ No backend connected. Open an AI agent page, or start with: wab server --browser");
       console.error("   Check: wab health");
       process.exit(1);
     }
@@ -204,7 +265,10 @@ async function cmdSend() {
   }
 
   // Build A2A JSON-RPC payload with optional agent target in metadata
-  const agentMeta = agent ? { "x-target-agent": agent } : undefined;
+  const agentMeta = {};
+  if (agent) agentMeta["x-target-agent"] = agent;
+  if (backend) agentMeta["x-backend"] = backend;
+  const metadata = Object.keys(agentMeta).length ? agentMeta : undefined;
 
   const body = {
     jsonrpc: "2.0",
@@ -217,9 +281,9 @@ async function cmdSend() {
         taskId,
         role: "ROLE_USER",
         parts: [{ text: message, mediaType: "text/plain" }],
-        metadata: agentMeta,
+        metadata,
       },
-      metadata: agentMeta,
+      metadata,
     },
   };
 
@@ -280,6 +344,69 @@ async function cmdSend() {
   }
 }
 
+// ── acp (stdio) ──
+
+async function cmdAcp() {
+  const entry = join(root, "server", "acp-stdio.ts");
+  if (!existsSync(entry)) {
+    console.error("❌ Cannot find server/acp-stdio.ts");
+    process.exit(1);
+  }
+
+  const backend = getFlag("--backend", "-b") || "extension";
+  if (backend !== "extension" && backend !== "browser") {
+    console.error(`❌ Unknown backend "${backend}". Available: extension, browser`);
+    process.exit(1);
+  }
+
+  const env = {
+    ...process.env,
+    WAB_ACP_BACKEND: backend,
+    WAB_SERVER: getServerUrl(),
+  };
+  const cdp = cdpUrl();
+  if (cdp) env.CDP_URL = cdp;
+
+  const child = spawn(process.execPath, ["--import", "tsx", entry], {
+    env, stdio: "inherit", cwd: root,
+  });
+  child.on("exit", (code) => process.exit(code ?? 1));
+  process.on("SIGINT", () => child.kill("SIGINT"));
+  process.on("SIGTERM", () => child.kill("SIGTERM"));
+}
+
+// ── login ──
+
+async function cmdLogin() {
+  const entry = join(root, "server", "browser-login.ts");
+  if (!existsSync(entry)) {
+    console.error("❌ Cannot find server/browser-login.ts");
+    process.exit(1);
+  }
+
+  const fv = flagValues();
+  let agent = getFlag("--agent", "-a");
+  if (!agent) {
+    let after = false;
+    for (const a of args) {
+      if (a === "login") { after = true; continue; }
+      if (after && !a.startsWith("-") && !fv.has(a)) { agent = a; break; }
+    }
+  }
+  if (agent && !KNOWN_AGENTS.includes(agent)) {
+    console.error(`❌ Unknown agent "${agent}". Available: ${KNOWN_AGENTS.join(", ")}`);
+    process.exit(1);
+  }
+
+  const env = { ...process.env, WAB_LOGIN_AGENT: agent || "" };
+  const child = spawn(process.execPath, ["--import", "tsx", entry], {
+    env, stdio: "inherit", cwd: root,
+  });
+  child.on("exit", (code) => process.exit(code ?? 1));
+  process.on("SIGINT", () => child.kill("SIGINT"));
+  process.on("SIGTERM", () => child.kill("SIGTERM"));
+}
+
 // ── pack ──
 
 async function cmdPack() {
@@ -338,13 +465,17 @@ function showHelp() {
   Commands:
     server              Start the local A2A server
     send <message>      Send a message and print the AI response
+    acp                 Speak ACP on stdin/stdout (for editors)
+    cdp                 Restart Dia with remote debugging (reuse Doubao login)
+    login [agent]       Open a browser to log in (Playwright profile)
     agent               Show the Agent Card (skills & capabilities)
     health              Check server & extension connection status
     pack                Package extension as ZIP for distribution
     publish [--dry-run] Type-check, pack, and publish to npm
 
   Options (send):
-    -a, --agent <name>  Target agent: doubao | workbuddy (default: auto)
+    -a, --agent <name>  Target agent: doubao | chatgpt | gemini | workbuddy
+    -b, --backend <name>  Backend: extension | browser (default: auto)
     -m, --message <msg> Message text (alternative to positional arg)
     -s, --server <url>  Server URL (default: http://127.0.0.1:3000)
     -c, --context <id>  Context ID for multi-turn conversations
@@ -354,19 +485,32 @@ function showHelp() {
 
   Options (server):
     -p, --port <port>   Port number (default: 3000)
+    --browser           Also start the Playwright backend
+    --browser-only      Playwright only (no Chrome extension WebSocket)
+    --cdp [url|auto]    Attach Playwright to a running browser (default: auto-discover)
+    --acp               Also serve ACP at /acp
+
+  Options (acp):
+    -b, --backend <name>  extension (proxy to wab server) | browser (local Playwright)
+    --cdp [url]         CDP endpoint when --backend browser
+    -s, --server <url>  A2A server used by the extension backend
+
+  Examples:
+    wab server                              # Extension backend
+    wab server --browser --acp             # Extension + Playwright + ACP
+    wab send "1+1等于几？"                   # Auto-detect agent
+    wab cdp                                 # Restart Dia with CDP (keep Doubao login)
+    wab server --browser --cdp --acp        # Attach to that Dia + ACP
+    wab send -b browser -a doubao "你好"    # Drive the open Doubao tab
+    wab login doubao                        # Alt: save cookies for a private Chromium
+    wab acp                                 # ACP stdio, via running server
+    wab acp -b browser                      # ACP stdio, local Playwright
 
   Environment:
     WAB_SERVER              Default server URL
     PORT                    Default server port
-
-  Examples:
-    wab server                              # Start A2A server
-    wab send "1+1等于几？"                   # Auto-detect agent
-    wab send -a doubao "帮我操作飞书"        # Target Doubao
-    wab send -a workbuddy "写一份周报"       # Target WorkBuddy
-    echo "写一首诗" | wab send              # Pipe input
-    wab send --json "hello"                 # JSON output
-    wab publish --dry-run                   # Test publish flow
+    WAB_USER_DATA_DIR       Playwright profile directory
+    WAB_HEADLESS=0          Show the Playwright window
 
   Advanced A2A client:
     agentalk send http://127.0.0.1:3000 -m "hello"
@@ -382,6 +526,12 @@ switch (command) {
     cmdServer(); break;
   case "send": case "ask": case "chat":
     cmdSend(); break;
+  case "acp":
+    cmdAcp(); break;
+  case "cdp": case "attach":
+    cmdCdp(); break;
+  case "login":
+    cmdLogin(); break;
   case "agent": case "card": case "info":
     cmdAgent(); break;
   case "health": case "status":
