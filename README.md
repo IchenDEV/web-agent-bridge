@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>把网页上的 AI Agent 变成标准 A2A 协议端点，让任何 Agent 都能调用它们。</strong><br>
-  Bridge online AI agents into standard <a href="https://google.github.io/A2A/">A2A</a> protocol endpoints via a Chrome extension.
+  <strong>把网页上的 AI Agent 变成标准 A2A / ACP 端点，让任何 Agent 或编辑器都能调用它们。</strong><br>
+  Bridge online AI agents into <a href="https://google.github.io/A2A/">A2A</a> and <a href="https://agentclientprotocol.com">ACP</a> endpoints.
 </p>
 
 <p align="center">
@@ -33,7 +33,15 @@ Web Agent Bridge 通过**浏览器扩展 + 本地服务器**，让你可以：
 
 ```
 A2A Client ──JSON-RPC──▶ Local Server ──WebSocket──▶ Chrome Extension ──DOM──▶ Online AI Agent
+ACP Client ──stdio/HTTP─▶ Local Server ──Playwright─▶ Chrome (CDP) ─────DOM──▶ Online AI Agent
 ```
+
+两条后端可以同时开着：
+
+- **extension**：Chrome 扩展，沿用现有页面和登录态
+- **browser**：Playwright。`--cdp` 连到已经打开的 Chrome，或者用 `wab login` 保存的配置启动
+
+请求里用 `x-backend`（`extension` | `browser`）和 `x-target-agent`（`doubao` | `chatgpt` | `gemini` | `workbuddy`）选择链路和站点。没指定时走默认后端，默认后端没连上会自动换到另一个已连接的后端。
 
 ## 支持的 AI Agent
 
@@ -160,15 +168,25 @@ curl http://127.0.0.1:3000/health
 wab <command> [options]
 
 Commands:
-  server              启动 A2A 服务器
+  server              启动服务器（默认 Chrome 扩展后端）
   send <message>      发送消息并输出 AI 回复（纯文本）
+  acp                 在 stdin/stdout 上提供 ACP（给编辑器调用）
+  login [agent]       打开浏览器登录，供 Playwright 后端复用
   agent               显示 Agent Card（能力 & 技能）
-  health              检查服务器和扩展连接状态
+  health              检查服务器和各后端连接状态
   pack                打包扩展为 ZIP
   publish [--dry-run] 类型检查 + 打包 + 发布到 npm
 
+Options (server):
+  -p, --port <port>   端口（默认 3000）
+  --browser           同时启动 Playwright 后端
+  --browser-only      只用 Playwright，不监听扩展 WebSocket
+  --cdp [url]         Playwright 连接已打开的 Chrome（默认 http://127.0.0.1:9222）
+  --acp               同时在 /acp 提供 ACP
+
 Options (send):
-    -a, --agent <name>  目标 Agent: doubao | chatgpt | gemini | workbuddy（默认自动检测）
+  -a, --agent <name>  目标 Agent: doubao | chatgpt | gemini | workbuddy
+  -b, --backend <name> 链路: extension | browser（默认自动）
   -m, --message <msg> 消息文本
   -s, --server <url>  服务器地址 (默认 http://127.0.0.1:3000)
   -c, --context <id>  上下文 ID（多轮对话）
@@ -178,7 +196,49 @@ Options (send):
 环境变量:
   WAB_SERVER              默认服务器 URL
   PORT                    服务器端口
+  WAB_USER_DATA_DIR       Playwright 配置目录
+  WAB_HEADLESS=0          显示 Playwright 窗口
 ```
+
+Chrome 需要远程调试时：
+
+Chrome / Dia 复用已登录会话：
+
+```bash
+wab cdp                                 # 重启 Dia 并打开 remote debugging（登录态保留）
+wab server --browser --cdp --acp        # 附着到 Dia，驱动已打开的豆包标签
+wab send -b browser -a doubao "1+1等于几？"
+LIVE=1 npm run test:e2e:acp             # 端到端真实发消息（需先 wab cdp）
+```
+
+也可用扩展链路：在 Dia 里加载 `extension/`，再 `wab server`（不必 CDP）。
+
+```bash
+npx playwright install chromium
+chrome --remote-debugging-port=9222
+wab server --browser --cdp http://127.0.0.1:9222 --acp
+```
+
+编辑器把本进程当 ACP agent 启动：
+
+```bash
+wab acp                  # 转发到已运行的 wab server（扩展链路）
+wab acp -b browser       # 不依赖服务器，直接用 Playwright
+wab login doubao         # 先登录，再让 Playwright 复用这个配置
+```
+
+## ACP
+
+稳定协议版本是 1。实现的方法：
+
+| 方法 | 作用 |
+|------|------|
+| `initialize` | 协商版本。不提供文件系统和终端能力 |
+| `session/new` | 创建会话。`_meta.x-target-agent` / `_meta.x-backend` 会记在会话上 |
+| `session/prompt` | 把文本发给所选后端，并用 `session/update` 流式返回 |
+| `session/cancel` | 中断当前这一轮 |
+
+不支持 `session/load`。stdio 模式下日志写到 stderr，避免污染 JSON-RPC。
 
 ## 扩展设置
 
@@ -193,7 +253,9 @@ Options (send):
 | `GET /health` | 健康检查（含扩展连接状态） |
 | `GET /.well-known/agent-card.json` | A2A Agent Card |
 | `POST /a2a` | A2A JSON-RPC 端点 |
+| `POST /acp` | ACP 端点（`wab server --acp` 时启用） |
 | `ws://127.0.0.1:3000/ws` | 扩展 ↔ 服务器 WebSocket |
+| `ws://127.0.0.1:3000/acp` | ACP WebSocket（与 `/ws` 分开） |
 
 ## 添加新适配器
 
@@ -236,10 +298,16 @@ const YourAgentAdapter = (() => {
 ```
 web-agent-bridge/
 ├── server/                    # A2A 服务器 (TypeScript)
-│   ├── index.ts               #   入口：Express + WS
+│   ├── index.ts               #   入口：Express + WS + 可选 ACP
 │   ├── agent-card.ts          #   Agent Card
-│   ├── bridge-executor.ts     #   A2A ↔ WS 桥接
-│   └── ws-bridge.ts           #   WebSocket 桥接层
+│   ├── bridge-executor.ts     #   A2A ↔ 后端
+│   ├── message-backend.ts     #   后端接口与路由
+│   ├── ws-bridge.ts           #   Chrome 扩展 WebSocket
+│   ├── browser-backend.ts     #   Playwright 后端
+│   ├── browser-adapters/      #   各站点的页面操作
+│   ├── acp-agent.ts           #   ACP Agent
+│   ├── acp-stdio.ts           #   ACP stdin/stdout
+│   └── acp-http.ts            #   ACP HTTP / WebSocket
 ├── extension/                 # Chrome 扩展 (Manifest V3)
 │   ├── manifest.json          #   扩展配置
 │   ├── background.js          #   Service Worker
@@ -281,7 +349,10 @@ wab health                              # 检查连接
 wab send "test"                         # 快速测试
 wab send -a doubao "test"               # 指定 Agent
 npx tsx test/stress-test.ts             # 鲁棒性压力测试 (5 条连发)
-npx tsx test/a2a-protocol-verify.ts     # A2A 协议合规 (91 项)
+npx tsx test/a2a-protocol-verify.ts     # A2A 协议合规
+npm run test:acp                        # ACP 协议合规（进程内）
+npm run test:e2e:acp                    # ACP + 浏览器后端端到端
+LIVE=1 npm run test:e2e:acp             # 同上，并真正发一条网页对话（需先 wab login）
 wab pack                                # 打包扩展
 wab publish --dry-run                   # 试跑发布流程
 ```

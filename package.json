@@ -1,7 +1,7 @@
 {
   "name": "web-agent-bridge",
   "version": "3.21.0",
-  "description": "Bridge online web AI agents (Doubao, etc.) to A2A protocol endpoints via a Chrome extension",
+  "description": "Bridge online web AI agents (Doubao, ChatGPT, Gemini, WorkBuddy) to A2A and ACP via a Chrome extension or Playwright",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -10,6 +10,9 @@
   },
   "keywords": [
     "a2a",
+    "acp",
+    "agent-client-protocol",
+    "playwright",
     "agent-to-agent",
     "ai-agent",
     "browser-extension",
@@ -24,9 +27,12 @@
     "pack:extension": "cd extension && zip -r ../web-agent-bridge-extension.zip . -x '*.ts' 'tsconfig.json' '*.map' && echo '✓ web-agent-bridge-extension.zip'",
     "typecheck": "tsc --noEmit",
     "test:e2e": "node --import tsx test/e2e.ts",
+    "test:e2e:acp": "node --import tsx test/e2e-acp-browser.ts",
     "test:feishu": "node --import tsx test/feishu-test.ts",
     "test:quick": "node --import tsx test/quick-test.ts",
     "test:stress": "node --import tsx test/stress-test.ts",
+    "test:acp": "node --import tsx test/acp-protocol-verify.ts",
+    "test:acp:live": "LIVE=1 node --import tsx test/acp-live-verify.ts",
     "prepublishOnly": "npm run typecheck"
   },
   "bin": {
@@ -43,6 +49,7 @@
   ],
   "dependencies": {
     "@a2a-js/sdk": "^1.1.0",
+    "@agentclientprotocol/sdk": "^1.4.0",
     "express": "^5",
     "ws": "^8"
   },
@@ -55,5 +62,8 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.63.0"
   }
 }
