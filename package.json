@@ -43,6 +43,7 @@
     "bin/",
     "server/",
     "extension/",
+    "skills/",
     "package.json",
     "README.md",
     "LICENSE"

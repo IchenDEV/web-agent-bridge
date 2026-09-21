@@ -62,11 +62,27 @@ ACP Client ──stdio/HTTP─▶ Local Server ──Playwright─▶ Chrome (CD
 git clone https://github.com/IchenDEV/web-agent-bridge.git
 cd web-agent-bridge
 npm install
-npm link          # 注册 wab 命令（可选）
+npm link          # 全局注册 wab / web-agent-bridge
 wab server        # 或 npm run server
 ```
 
 > 服务器默认在 `http://127.0.0.1:3000` 启动。可以用 `wab server -p 8080` 更改端口。
+
+### Agent Skill（给编码 Agent 用）
+
+仓库自带操作手册 skill，安装到全局 agent / Cursor skill 目录后，Agent 在需要驱动豆包等网页 AI 时会按手册调用 `wab`：
+
+```bash
+# 全局 agent skills（~/.agents/skills）
+mkdir -p ~/.agents/skills
+ln -sfn "$(pwd)/skills/web-agent-bridge" ~/.agents/skills/web-agent-bridge
+
+# Cursor 个人 skills（~/.cursor/skills）
+mkdir -p ~/.cursor/skills
+ln -sfn "$(pwd)/skills/web-agent-bridge" ~/.cursor/skills/web-agent-bridge
+```
+
+Skill 源文件：[`skills/web-agent-bridge/SKILL.md`](skills/web-agent-bridge/SKILL.md)。
 
 ### 2. 安装浏览器扩展
 
@@ -229,16 +245,11 @@ wab login doubao         # 先登录，再让 Playwright 复用这个配置
 
 ## ACP
 
-稳定协议版本是 1。实现的方法：
+稳定协议版本是 1。会话能力包括 `new` / `list` / `load` / `resume` / `close` / `delete` / `fork`、`prompt` / `cancel`、`set_mode` / `set_config_option`。网页聊天桥接不提供文件系统、终端和工具权限请求。
 
-| 方法 | 作用 |
-|------|------|
-| `initialize` | 协商版本。不提供文件系统和终端能力 |
-| `session/new` | 创建会话。`_meta.x-target-agent` / `_meta.x-backend` 会记在会话上 |
-| `session/prompt` | 把文本发给所选后端，并用 `session/update` 流式返回 |
-| `session/cancel` | 中断当前这一轮 |
+`session/new` 的 `_meta.x-target-agent` / `_meta.x-backend` 会记在会话上；也可用会话内斜杠命令 `/agent`、`/backend`、`/status`。stdio 模式下日志写到 stderr，避免污染 JSON-RPC。
 
-不支持 `session/load`。stdio 模式下日志写到 stderr，避免污染 JSON-RPC。
+详见 skill：[`skills/web-agent-bridge/SKILL.md`](skills/web-agent-bridge/SKILL.md)。
 
 ## 扩展设置
 
