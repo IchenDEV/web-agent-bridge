@@ -44,6 +44,41 @@ const AGENT_TAB_PATTERNS = [
     pattern: "*://gemini.google.com/*",
     scripts: ["adapters/gemini.js", "content.js"],
   },
+  {
+    name: "perplexity",
+    pattern: "*://www.perplexity.ai/*",
+    scripts: ["adapters/perplexity.js", "content.js"],
+  },
+  {
+    name: "perplexity",
+    pattern: "*://perplexity.ai/*",
+    scripts: ["adapters/perplexity.js", "content.js"],
+  },
+  {
+    name: "kimi",
+    pattern: "*://www.kimi.com/*",
+    scripts: ["adapters/kimi.js", "content.js"],
+  },
+  {
+    name: "kimi",
+    pattern: "*://kimi.moonshot.cn/*",
+    scripts: ["adapters/kimi.js", "content.js"],
+  },
+  {
+    name: "qianwen",
+    pattern: "*://www.qianwen.com/*",
+    scripts: ["adapters/qianwen.js", "content.js"],
+  },
+  {
+    name: "qianwen",
+    pattern: "*://chat.qwen.ai/*",
+    scripts: ["adapters/qianwen.js", "content.js"],
+  },
+  {
+    name: "qianwen",
+    pattern: "*://tongyi.aliyun.com/*",
+    scripts: ["adapters/qianwen.js", "content.js"],
+  },
 ];
 
 let ws = null;
@@ -203,10 +238,13 @@ async function injectContentScripts(tabId, scripts) {
 // ── Default URLs for auto-opening agent tabs ──
 
 const AGENT_DEFAULT_URLS = {
-  doubao:    "https://www.doubao.com/chat/",
-  workbuddy: "https://www.workbuddy.cn/app",
-  chatgpt:   "https://chatgpt.com/",
-  gemini:    "https://gemini.google.com/app",
+  doubao:     "https://www.doubao.com/chat/",
+  workbuddy:  "https://www.workbuddy.cn/app",
+  chatgpt:    "https://chatgpt.com/",
+  gemini:     "https://gemini.google.com/app",
+  perplexity: "https://www.perplexity.ai/",
+  kimi:       "https://www.kimi.com/",
+  qianwen:    "https://www.qianwen.com/",
 };
 
 /**

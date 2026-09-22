@@ -2,7 +2,7 @@
  * Open a headed browser so the user can log in to an AI agent.
  * Saves cookies to storage-state.json for `wab server --browser`.
  *
- *   WAB_LOGIN_AGENT=doubao|chatgpt|gemini|workbuddy   (optional, default: all)
+ *   WAB_LOGIN_AGENT=doubao|chatgpt|gemini|workbuddy|perplexity|kimi|qianwen   (optional, default: all)
  */
 import { mkdirSync } from "node:fs";
 import readline from "node:readline";

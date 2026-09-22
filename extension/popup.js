@@ -8,6 +8,11 @@ const AGENT_TAB_PATTERNS = [
   { name: "WorkBuddy", pattern: "*://www.workbuddy.cn/app*" },
   { name: "ChatGPT", pattern: "*://chatgpt.com/*" },
   { name: "Gemini", pattern: "*://gemini.google.com/*" },
+  { name: "Perplexity", pattern: "*://www.perplexity.ai/*" },
+  { name: "Kimi", pattern: "*://www.kimi.com/*" },
+  { name: "Kimi (moonshot)", pattern: "*://kimi.moonshot.cn/*" },
+  { name: "通义千问", pattern: "*://www.qianwen.com/*" },
+  { name: "Qwen Chat", pattern: "*://chat.qwen.ai/*" },
 ];
 
 const DEFAULT_SERVER = "http://127.0.0.1:3000";
@@ -81,7 +86,10 @@ async function detectAgentTabs() {
         · <a href="https://www.doubao.com/chat/" target="_blank" style="color:#6366f1">doubao.com/chat</a><br>
         · <a href="https://chatgpt.com/" target="_blank" style="color:#6366f1">chatgpt.com</a><br>
         · <a href="https://gemini.google.com/app" target="_blank" style="color:#6366f1">gemini.google.com</a><br>
-        · <a href="https://www.workbuddy.cn/app" target="_blank" style="color:#6366f1">workbuddy.cn/app</a>
+        · <a href="https://www.workbuddy.cn/app" target="_blank" style="color:#6366f1">workbuddy.cn/app</a><br>
+        · <a href="https://www.perplexity.ai/" target="_blank" style="color:#6366f1">perplexity.ai</a><br>
+        · <a href="https://www.kimi.com/" target="_blank" style="color:#6366f1">kimi.com</a><br>
+        · <a href="https://www.qianwen.com/" target="_blank" style="color:#6366f1">qianwen.com</a>
       </div>`;
     return;
   }

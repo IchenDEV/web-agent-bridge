@@ -27,7 +27,7 @@ const root = join(__dirname, "..");
 const DEFAULT_SERVER = "http://127.0.0.1:3000";
 const VERSION = JSON.parse(readFileSync(join(root, "package.json"), "utf-8")).version;
 
-const KNOWN_AGENTS = ["doubao", "workbuddy", "chatgpt", "gemini"];
+const KNOWN_AGENTS = ["doubao", "workbuddy", "chatgpt", "gemini", "perplexity", "kimi", "qianwen"];
 
 // ── Arg parsing ──
 
@@ -474,7 +474,7 @@ function showHelp() {
     publish [--dry-run] Type-check, pack, and publish to npm
 
   Options (send):
-    -a, --agent <name>  Target agent: doubao | chatgpt | gemini | workbuddy
+    -a, --agent <name>  Target agent: doubao | chatgpt | gemini | workbuddy | perplexity | kimi | qianwen
     -b, --backend <name>  Backend: extension | browser (default: auto)
     -m, --message <msg> Message text (alternative to positional arg)
     -s, --server <url>  Server URL (default: http://127.0.0.1:3000)

@@ -1,7 +1,7 @@
 {
   "name": "web-agent-bridge",
   "version": "3.21.0",
-  "description": "Bridge online web AI agents (Doubao, ChatGPT, Gemini, WorkBuddy) to A2A and ACP via a Chrome extension or Playwright",
+  "description": "Bridge online web AI agents (Doubao, ChatGPT, Gemini, WorkBuddy, Perplexity, Kimi, Qianwen) to A2A and ACP via a Chrome extension or Playwright",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -17,6 +17,10 @@
     "ai-agent",
     "browser-extension",
     "doubao",
+    "perplexity",
+    "kimi",
+    "qianwen",
+    "qwen",
     "chrome-extension"
   ],
   "scripts": {

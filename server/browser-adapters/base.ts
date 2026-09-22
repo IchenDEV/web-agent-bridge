@@ -29,6 +29,13 @@ export async function asElement(
   return element;
 }
 
+function isTransientEvalError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /Cannot find context|Execution context was destroyed|Target closed|page has been closed/i.test(
+    msg,
+  );
+}
+
 /**
  * Poll until a new assistant node appears and the turn is truly idle.
  *
@@ -50,18 +57,44 @@ export async function pollForResponse(
     stableChecks?: number;
     /** Extra idle polls required after the last time `isStreaming` was true. */
     idleAfterBusyChecks?: number;
+    /**
+     * Assistant text captured before send. If the DOM reuses the same node
+     * (in-place update) or navigates mid-flight, a changed `lastText` still
+     * counts as a new response.
+     */
+    prevText?: string | null;
   },
 ): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   const interval = opts.intervalMs ?? 500;
   const needed = opts.stableChecks ?? 3;
   const idleAfterBusy = opts.idleAfterBusyChecks ?? needed;
+  const baseline = opts.prevText ?? null;
 
   while (Date.now() < deadline) {
-    if (await opts.hasNew(prev)) break;
+    try {
+      if (await opts.hasNew(prev)) break;
+      if (baseline !== null) {
+        const now = (await opts.lastText()) ?? "";
+        if (now.length > 0 && now !== baseline) break;
+      }
+    } catch (err) {
+      if (!isTransientEvalError(err)) throw err;
+    }
     await sleep(interval);
   }
-  if (!(await opts.hasNew(prev))) {
+
+  let appeared = false;
+  try {
+    appeared = await opts.hasNew(prev);
+    if (!appeared && baseline !== null) {
+      const now = (await opts.lastText()) ?? "";
+      appeared = now.length > 0 && now !== baseline;
+    }
+  } catch (err) {
+    if (!isTransientEvalError(err)) throw err;
+  }
+  if (!appeared) {
     throw new Error(
       `Timeout: no new assistant message after ${Math.round(timeoutMs / 1000)}s (${opts.label})`,
     );
@@ -73,8 +106,16 @@ export async function pollForResponse(
   let sawBusy = false;
 
   while (Date.now() < deadline) {
-    const current = (await opts.lastText()) ?? "";
-    const streaming = await opts.isStreaming();
+    let current = "";
+    let streaming = false;
+    try {
+      current = (await opts.lastText()) ?? "";
+      streaming = await opts.isStreaming();
+    } catch (err) {
+      if (!isTransientEvalError(err)) throw err;
+      await sleep(interval);
+      continue;
+    }
 
     if (streaming) {
       sawBusy = true;
@@ -100,17 +141,31 @@ export async function pollForResponse(
   }
 
   // Final guard: never return while the page still reports busy.
-  while (Date.now() < deadline && (await opts.isStreaming())) {
+  while (Date.now() < deadline) {
+    try {
+      if (!(await opts.isStreaming())) break;
+    } catch (err) {
+      if (!isTransientEvalError(err)) throw err;
+    }
     await sleep(interval);
   }
-  if (await opts.isStreaming()) {
-    throw new Error(
-      `Timeout: page still busy after ${Math.round(timeoutMs / 1000)}s (${opts.label})`,
-    );
+  try {
+    if (await opts.isStreaming()) {
+      throw new Error(
+        `Timeout: page still busy after ${Math.round(timeoutMs / 1000)}s (${opts.label})`,
+      );
+    }
+  } catch (err) {
+    if (!isTransientEvalError(err)) throw err;
   }
 
   await sleep(400);
-  const text = await opts.lastText();
+  let text: string | null = null;
+  try {
+    text = await opts.lastText();
+  } catch (err) {
+    if (!isTransientEvalError(err)) throw err;
+  }
   if (!text) throw new Error(`Could not extract assistant response (${opts.label})`);
   return text;
 }

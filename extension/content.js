@@ -11,13 +11,16 @@
  *   - Graceful error handling with per-task error reporting
  *
  * Supported adapters:
- *   - DoubaoAdapter   (doubao.com)
- *   - WorkbuddyAdapter (workbuddy.cn)
- *   - ChatGPTAdapter  (chatgpt.com)
- *   - GeminiAdapter   (gemini.google.com)
+ *   - DoubaoAdapter     (doubao.com)
+ *   - WorkbuddyAdapter  (workbuddy.cn)
+ *   - ChatGPTAdapter    (chatgpt.com)
+ *   - GeminiAdapter     (gemini.google.com)
+ *   - PerplexityAdapter (perplexity.ai)
+ *   - KimiAdapter       (kimi.com / kimi.moonshot.cn)
+ *   - QianwenAdapter    (qianwen.com / chat.qwen.ai)
  */
 
-/* global DoubaoAdapter, WorkbuddyAdapter, ChatGPTAdapter, GeminiAdapter */
+/* global DoubaoAdapter, WorkbuddyAdapter, ChatGPTAdapter, GeminiAdapter, PerplexityAdapter, KimiAdapter, QianwenAdapter */
 
 // ── Injection guard with extension reload detection ──
 // Uses extension ID + session to detect stale guards from old extension instances.
@@ -52,7 +55,13 @@ if (window.__webAgentBridgeLoaded && !isStale) {
           ? { name: "chatgpt", impl: ChatGPTAdapter }
           : typeof GeminiAdapter !== "undefined"
             ? { name: "gemini", impl: GeminiAdapter }
-            : null;
+            : typeof PerplexityAdapter !== "undefined"
+              ? { name: "perplexity", impl: PerplexityAdapter }
+              : typeof KimiAdapter !== "undefined"
+                ? { name: "kimi", impl: KimiAdapter }
+                : typeof QianwenAdapter !== "undefined"
+                  ? { name: "qianwen", impl: QianwenAdapter }
+                  : null;
 
   if (!adapter) {
     console.error("[Content] No adapter available for", location.hostname);
