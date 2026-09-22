@@ -35,26 +35,27 @@ const KimiAdapter = (() => {
   }
 
   function getAnswers() {
-    return [
-      ...document.querySelectorAll(
-        '[data-testid*="chat-segment"], [class*="markdown"], [class*="content___"], .markdown',
-      ),
-    ].filter((el) => {
-      if (el.closest('[contenteditable="true"], [data-testid="msh-chatinput-editor"], form')) {
-        return false;
-      }
-      return (el.textContent || "").trim().length > 8;
-    });
+    return [...document.querySelectorAll(".chat-content-item-assistant, .segment-assistant")];
   }
 
   function cleanText(raw) {
     return raw.replace(/\s+/g, " ").trim();
   }
 
+  function extractText(el) {
+    const mds = [...el.querySelectorAll(".markdown")].filter((m) => !m.closest(".toolcall-content"));
+    const pick = mds.length ? mds[mds.length - 1] : el.querySelector(".markdown") || el;
+    let value = cleanText(pick.textContent || "");
+    for (const noise of ["编辑", "复制", "分享"]) {
+      value = value.replace(new RegExp(noise, "g"), "").trim();
+    }
+    return value;
+  }
+
   function getLastAssistantText() {
     const answers = getAnswers();
     if (answers.length === 0) return null;
-    return cleanText(answers[answers.length - 1].textContent || "");
+    return extractText(answers[answers.length - 1]) || null;
   }
 
   function snapshotLastAssistant() {

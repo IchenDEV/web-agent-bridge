@@ -11,10 +11,11 @@
 
 const QianwenAdapter = (() => {
   const INPUT_SELECTORS = [
+    '[role="textbox"][contenteditable="true"]',
     "#chat-input",
     "textarea.text-area-box-web",
     "textarea.message-input-textarea",
-    '[role="textbox"][contenteditable="true"]',
+    '[contenteditable="true"]',
     "textarea",
   ].join(", ");
 
@@ -36,9 +37,12 @@ const QianwenAdapter = (() => {
   function getAnswers() {
     return [
       ...document.querySelectorAll(
-        '[data-msgid$="-answer"], [data-chat-answers-wrap], .qwen-chat-message-assistant, .response-message-content.phase-answer, #qk-markdown-react, [class*="response-message"]',
+        '.chat-answers-card-wrap, .answer-common-card, .qk-markdown-react, .markdown-pc-special-class, [class*="message-select-wrapper-answer"], [data-msgid$="-answer"], [data-chat-answers-wrap], .qwen-chat-message-assistant, .response-message-content.phase-answer, [class*="response-message"]',
       ),
-    ].filter((el) => (el.textContent || "").trim().length > 4);
+    ].filter((el) => {
+      if (el.closest('[contenteditable="true"], [role="textbox"]')) return false;
+      return (el.textContent || "").trim().length > 0;
+    });
   }
 
   function cleanText(raw) {
@@ -136,7 +140,13 @@ const QianwenAdapter = (() => {
     }
 
     await sleep(400);
-    const sendBtn = findSendButton();
+    const deadline = Date.now() + 5000;
+    let sendBtn = null;
+    while (Date.now() < deadline) {
+      sendBtn = findSendButton();
+      if (sendBtn && !sendBtn.disabled) break;
+      await sleep(150);
+    }
     if (sendBtn && !sendBtn.disabled) sendBtn.click();
     else {
       input.dispatchEvent(

@@ -37,7 +37,7 @@ const PerplexityAdapter = (() => {
     return [...document.querySelectorAll('div[class*="prose"], [class*="answer"], [data-testid*="answer"]')].filter(
       (el) => {
         if (el.closest('[contenteditable="true"], form, [role="textbox"]')) return false;
-        return (el.textContent || "").trim().length > 20;
+        return (el.textContent || "").trim().length > 0;
       },
     );
   }
