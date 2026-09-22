@@ -41,7 +41,7 @@ ACP Client ──stdio/HTTP─▶ Local Server ──Playwright─▶ Chrome (CD
 - **extension**：Chrome 扩展，沿用现有页面和登录态
 - **browser**：Playwright。`--cdp` 连到已经打开的 Chrome，或者用 `wab login` 保存的配置启动
 
-请求里用 `x-backend`（`extension` | `browser`）和 `x-target-agent`（`doubao` | `chatgpt` | `gemini` | `workbuddy`）选择链路和站点。没指定时走默认后端，默认后端没连上会自动换到另一个已连接的后端。
+请求里用 `x-backend`（`extension` | `browser`）和 `x-target-agent`（`doubao` | `chatgpt` | `gemini` | `workbuddy` | `perplexity` | `kimi` | `qianwen`）选择链路和站点。没指定时走默认后端，默认后端没连上会自动换到另一个已连接的后端。
 
 ## 支持的 AI Agent
 
@@ -51,6 +51,9 @@ ACP Client ──stdio/HTTP─▶ Local Server ──Playwright─▶ Chrome (CD
 | 🤖 ChatGPT | [chatgpt.com](https://chatgpt.com/) | `chatgpt` | OpenAI GPT 对话 |
 | ✨ Gemini | [gemini.google.com](https://gemini.google.com/app) | `gemini` | Google Gemini 对话 |
 | 💼 WorkBuddy | [workbuddy.cn/app](https://www.workbuddy.cn/app) | `workbuddy` | 文档生成、数据分析、深度研究 |
+| 🔎 Perplexity | [perplexity.ai](https://www.perplexity.ai/) | `perplexity` | 带引用的网页检索回答 |
+| 🌙 Kimi | [kimi.com](https://www.kimi.com/) | `kimi` | 月之暗面长文/Agent 对话 |
+| 通义千问 | [qianwen.com](https://www.qianwen.com/) | `qianwen` | 阿里通义千问网页对话 |
 
 > 添加新 Agent 只需写一个 JS 适配器，参见 [添加新适配器](#添加新适配器)。
 
@@ -86,6 +89,11 @@ wab server        # 或 npm run server
 
 - 豆包: https://www.doubao.com/chat/
 - WorkBuddy: https://www.workbuddy.cn/app
+- ChatGPT: https://chatgpt.com/
+- Gemini: https://gemini.google.com/app
+- Perplexity: https://www.perplexity.ai/
+- Kimi: https://www.kimi.com/（或 https://kimi.moonshot.cn/）
+- 通义千问: https://www.qianwen.com/（或 https://chat.qwen.ai/）
 
 ### 4. 发送消息
 
@@ -99,6 +107,9 @@ wab send "1+1等于几？"
 # 指定目标 Agent
 wab send -a doubao "帮我操作飞书"
 wab send -a workbuddy "写一份周报"
+wab send -a perplexity "What are the latest AI agent frameworks?"
+wab send -a kimi "总结这段长文的要点"
+wab send -a qianwen "用中文解释量子计算"
 
 # 管道输入
 echo "写一首关于秋天的诗" | wab send
@@ -185,7 +196,7 @@ Options (server):
   --acp               同时在 /acp 提供 ACP
 
 Options (send):
-  -a, --agent <name>  目标 Agent: doubao | chatgpt | gemini | workbuddy
+  -a, --agent <name>  目标 Agent: doubao | chatgpt | gemini | workbuddy | perplexity | kimi | qianwen
   -b, --backend <name> 链路: extension | browser（默认自动）
   -m, --message <msg> 消息文本
   -s, --server <url>  服务器地址 (默认 http://127.0.0.1:3000)
@@ -317,7 +328,12 @@ web-agent-bridge/
 │   ├── icons/                 #   扩展图标
 │   └── adapters/
 │       ├── doubao.js          #   豆包适配器
-│       └── workbuddy.js       #   WorkBuddy 适配器
+│       ├── workbuddy.js       #   WorkBuddy 适配器
+│       ├── chatgpt.js
+│       ├── gemini.js
+│       ├── perplexity.js
+│       ├── kimi.js
+│       └── qianwen.js         #   通义千问
 ├── test/                      # 测试脚本
 ├── bin/cli.mjs                # CLI 入口 (send/agent/health/server)
 ├── package.json

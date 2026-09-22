@@ -37,6 +37,21 @@
       "matches": ["*://gemini.google.com/*"],
       "js": ["adapters/gemini.js", "content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://www.perplexity.ai/*", "*://perplexity.ai/*"],
+      "js": ["adapters/perplexity.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://www.kimi.com/*", "*://kimi.moonshot.cn/*"],
+      "js": ["adapters/kimi.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://www.qianwen.com/*", "*://chat.qwen.ai/*", "*://tongyi.aliyun.com/*"],
+      "js": ["adapters/qianwen.js", "content.js"],
+      "run_at": "document_idle"
     }
   ],
   "icons": {

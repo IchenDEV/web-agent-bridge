@@ -5,7 +5,7 @@ export const PORT = Number(process.env.PORT || 3000);
 export const agentCard: AgentCard = {
   name: "Web Agent Bridge",
   description:
-    "Bridges online web AI agents (Doubao, ChatGPT, Gemini, WorkBuddy) to A2A. " +
+    "Bridges online web AI agents (Doubao, ChatGPT, Gemini, WorkBuddy, Perplexity, Kimi, Qianwen) to A2A. " +
     "Send a message and receive the AI assistant's reply via browser automation.",
   supportedInterfaces: [
     {
@@ -72,6 +72,39 @@ export const agentCard: AgentCard = {
         "分析这份数据并生成图表",
         "深度研究 AI Agent 行业趋势",
       ],
+      inputModes: [],
+      outputModes: [],
+      securityRequirements: [],
+    },
+    {
+      id: "perplexity-search",
+      name: "Perplexity Search",
+      description:
+        "Send a query to Perplexity web search and receive a cited research-style answer.",
+      tags: ["chat", "perplexity", "search", "research"],
+      examples: ["What happened in AI this week?", "Compare Claude and GPT for coding"],
+      inputModes: [],
+      outputModes: [],
+      securityRequirements: [],
+    },
+    {
+      id: "kimi-chat",
+      name: "Kimi Chat",
+      description:
+        "Send a message to Kimi (月之暗面) web chat and receive the assistant's response.",
+      tags: ["chat", "kimi", "moonshot", "月之暗面"],
+      examples: ["总结这篇长文档的要点", "帮我做一个调研大纲"],
+      inputModes: [],
+      outputModes: [],
+      securityRequirements: [],
+    },
+    {
+      id: "qianwen-chat",
+      name: "Qianwen Chat",
+      description:
+        "Send a message to 通义千问 (Qianwen / Qwen) web chat and receive the assistant's response.",
+      tags: ["chat", "qianwen", "qwen", "tongyi", "通义千问"],
+      examples: ["用中文解释量子计算", "帮我写一封商务邮件"],
       inputModes: [],
       outputModes: [],
       securityRequirements: [],
