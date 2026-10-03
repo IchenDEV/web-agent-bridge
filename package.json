@@ -30,6 +30,7 @@
     "build": "npm run build:server && npm run build:extension",
     "pack:extension": "cd extension && zip -r ../web-agent-bridge-extension.zip . -x '*.ts' 'tsconfig.json' '*.map' && echo '✓ web-agent-bridge-extension.zip'",
     "typecheck": "tsc --noEmit",
+    "test:unit": "node --import tsx --test \"test/unit/*.test.ts\"",
     "test:e2e": "node --import tsx test/e2e.ts",
     "test:e2e:acp": "node --import tsx test/e2e-acp-browser.ts",
     "test:feishu": "node --import tsx test/feishu-test.ts",

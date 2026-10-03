@@ -44,7 +44,8 @@ export const qianwenAdapter: BrowserAdapter = {
   name: "qianwen",
   url: "https://www.qianwen.com/",
   urlPattern: /^https:\/\/(www\.)?(qianwen\.com|chat\.qwen\.ai|tongyi\.aliyun\.com)\//,
-  async sendAndWaitForResponse(page, text, timeoutMs = 180_000) {
+  async sendAndWaitForResponse(page, req) {
+    const timeoutMs = req.timeoutMs ?? 180_000;
     // Always start from home so snapshot/prev handles stay valid and answers are fresh.
     if (!/^https:\/\/(www\.)?qianwen\.com\/?$/.test(page.url().split("?")[0])) {
       await page.goto("https://www.qianwen.com/", {
@@ -53,12 +54,14 @@ export const qianwenAdapter: BrowserAdapter = {
       });
     }
     try {
-      await send(page, text);
+      await send(page, req.text);
       return await pollForResponse(page, null, timeoutMs, {
         label: "qianwen",
         stableChecks: 4,
         idleAfterBusyChecks: 4,
         prevText: "",
+        onText: req.onText,
+        signal: req.signal,
         hasNew: () =>
           page.evaluate(() => {
             const nodes = [

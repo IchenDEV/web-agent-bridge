@@ -2,7 +2,8 @@ import express from "express";
 import { createServer } from "http";
 import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
 import { jsonRpcHandler, agentCardHandler, UserBuilder } from "@a2a-js/sdk/server/express";
-import { agentCard, PORT } from "./agent-card.js";
+import { agentCard } from "./agent-card.js";
+import { HOST, PORT } from "./config.js";
 import { BridgeExecutor } from "./bridge-executor.js";
 import { WsBridge } from "./ws-bridge.js";
 import { BackendRouter } from "./message-backend.js";
@@ -86,21 +87,21 @@ async function main() {
     }
   }
 
-  server.listen(PORT, "127.0.0.1", () => {
+  server.listen(PORT, HOST, () => {
     const lines = [
       "╔════════════════════════════════════════════════╗",
       "║  Web Agent Bridge – Server                      ║",
       "╠════════════════════════════════════════════════╣",
-      `║  HTTP:  http://127.0.0.1:${PORT}                 ║`,
-      `║  A2A:   http://127.0.0.1:${PORT}/a2a             ║`,
+      `║  HTTP:  http://${HOST}:${PORT}                 ║`,
+      `║  A2A:   http://${HOST}:${PORT}/a2a             ║`,
     ];
     if (bridge) {
-      lines.push(`║  WS:    ws://127.0.0.1:${PORT}/ws              ║`);
+      lines.push(`║  WS:    ws://${HOST}:${PORT}/ws              ║`);
     }
     if (ENABLE_ACP) {
-      lines.push(`║  ACP:   http://127.0.0.1:${PORT}/acp            ║`);
+      lines.push(`║  ACP:   http://${HOST}:${PORT}/acp            ║`);
     }
-    lines.push(`║  Card:  http://127.0.0.1:${PORT}/a2a/.well-known/agent-card.json`);
+    lines.push(`║  Card:  http://${HOST}:${PORT}/a2a/.well-known/agent-card.json`);
 
     const backends = [];
     if (!BROWSER_ONLY) backends.push("extension");
@@ -110,6 +111,25 @@ async function main() {
     lines.push("╚════════════════════════════════════════════════╝");
     console.log("\n" + lines.join("\n") + "\n");
   });
+
+  // ── Graceful shutdown ──
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n[Server] ${signal} received, shutting down...`);
+    // Reject in-flight turns and detach from the browser (CDP attach only
+    // detaches — the user's Dia/Chrome window stays open).
+    router.close();
+    server.close(() => {
+      console.log("[Server] Closed. Bye.");
+      process.exit(0);
+    });
+    // Safety net: don't hang on lingering keep-alive sockets.
+    setTimeout(() => process.exit(0), 3_000).unref();
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 main().catch((err) => {

@@ -62,14 +62,17 @@ export const workbuddyAdapter: BrowserAdapter = {
   name: "workbuddy",
   url: "https://www.workbuddy.cn/app",
   urlPattern: /^https:\/\/www\.workbuddy\.cn\/app/,
-  async sendAndWaitForResponse(page, text, timeoutMs = 180_000) {
+  async sendAndWaitForResponse(page, req) {
+    const timeoutMs = req.timeoutMs ?? 180_000;
     const prev = await snapshot(page);
     try {
-      await send(page, text);
+      await send(page, req.text);
       return await pollForResponse(page, prev, timeoutMs, {
         label: "workbuddy",
         intervalMs: 800,
         stableChecks: 4,
+        onText: req.onText,
+        signal: req.signal,
         hasNew: (prevEl) =>
           page.evaluate((prevNode) => {
             const blocks: Element[] = [];

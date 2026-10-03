@@ -4,11 +4,43 @@
  * multiple backends and routes requests to the appropriate one.
  */
 
+import { DEFAULT_TIMEOUT_MS } from "./config.js";
+
+/** A single send request, routed through any MessageBackend. */
+export interface SendOptions {
+  /** Correlation id for this turn. */
+  taskId: string;
+  /** User message text. */
+  text: string;
+  /** Per-request timeout in ms; defaults to `DEFAULT_TIMEOUT_MS`. */
+  timeoutMs?: number;
+  /** Target web agent: `doubao` | `chatgpt` | `gemini` | `workbuddy` (auto if omitted). */
+  target?: string;
+  /**
+   * Preferred backend name (`extension` | `browser`).
+   * Only consumed by BackendRouter; plain backends ignore it, which lets
+   * callers pass routing info without `instanceof` checks.
+   */
+  backend?: string;
+}
+
+/**
+ * One unit of streamed output.
+ *
+ * `text` semantics:
+ *   - `done: false` → incremental delta since the previous chunk
+ *   - `done: true`  → final complete text (consumers should prefer it over
+ *     the accumulated deltas when non-empty)
+ */
 export interface StreamChunk {
   text: string;
   done: boolean;
   parts?: Array<{ type: string; content: string; mediaType: string; filename?: string }>;
   error?: string;
+}
+
+export function resolveTimeout(timeoutMs: number | undefined): number {
+  return timeoutMs && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
 }
 
 export interface MessageBackend {
@@ -18,19 +50,16 @@ export interface MessageBackend {
   /** Extra fields merged into `/health` for this backend. */
   statusDetails?(): Record<string, unknown>;
 
-  sendAndStream(
-    taskId: string,
-    text: string,
-    timeoutMs?: number,
-    target?: string,
-  ): AsyncGenerator<StreamChunk>;
+  sendAndStream(req: SendOptions): AsyncGenerator<StreamChunk>;
 
-  sendAndWait(
-    taskId: string,
-    text: string,
-    timeoutMs?: number,
-    target?: string,
-  ): Promise<string>;
+  sendAndWait(req: SendOptions): Promise<string>;
+
+  /**
+   * Best-effort cancellation: stop waiting locally and, when possible,
+   * tell the remote side (extension page / browser tab) to stop working.
+   * Unknown task ids are ignored.
+   */
+  cancel(taskId: string): void;
 
   close(): void;
 }
@@ -44,7 +73,7 @@ export interface BackendStatus {
  * Routes requests to one of several registered MessageBackend instances.
  *
  * Selection logic (in order):
- *   1. Explicit `backend` parameter passed by the caller
+ *   1. Explicit `backend` field on the request
  *   2. The default backend
  *   3. Fallback: any connected backend
  */
@@ -117,47 +146,23 @@ export class BackendRouter implements MessageBackend {
     );
   }
 
-  async *sendAndStream(
-    taskId: string,
-    text: string,
-    timeoutMs = 180_000,
-    target?: string,
-  ): AsyncGenerator<StreamChunk> {
-    yield* this.resolve().sendAndStream(taskId, text, timeoutMs, target);
+  async *sendAndStream(req: SendOptions): AsyncGenerator<StreamChunk> {
+    yield* this.resolve(req.backend).sendAndStream(req);
   }
 
-  async sendAndWait(
-    taskId: string,
-    text: string,
-    timeoutMs = 180_000,
-    target?: string,
-  ): Promise<string> {
-    return this.resolve().sendAndWait(taskId, text, timeoutMs, target);
+  async sendAndWait(req: SendOptions): Promise<string> {
+    return this.resolve(req.backend).sendAndWait(req);
   }
 
-  /**
-   * Extended send that accepts explicit backend selection separate from target agent.
-   */
-  async *sendAndStreamVia(
-    backendName: string | undefined,
-    taskId: string,
-    text: string,
-    timeoutMs = 180_000,
-    target?: string,
-  ): AsyncGenerator<StreamChunk> {
-    const backend = this.resolve(backendName);
-    yield* backend.sendAndStream(taskId, text, timeoutMs, target);
-  }
-
-  async sendAndWaitVia(
-    backendName: string | undefined,
-    taskId: string,
-    text: string,
-    timeoutMs = 180_000,
-    target?: string,
-  ): Promise<string> {
-    const backend = this.resolve(backendName);
-    return backend.sendAndWait(taskId, text, timeoutMs, target);
+  /** Broadcast cancellation to every backend — each ignores unknown tasks. */
+  cancel(taskId: string): void {
+    for (const b of this.backends.values()) {
+      try {
+        b.cancel(taskId);
+      } catch (err: any) {
+        console.warn(`[BackendRouter] cancel failed on "${b.name}": ${err?.message ?? err}`);
+      }
+    }
   }
 
   close(): void {

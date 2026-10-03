@@ -1,6 +1,9 @@
 import type { AgentCard } from "@a2a-js/sdk";
+import { HOST, PORT, VERSION } from "./config.js";
 
-export const PORT = Number(process.env.PORT || 3000);
+export { PORT };
+
+const baseUrl = `http://${HOST}:${PORT}`;
 
 export const agentCard: AgentCard = {
   name: "Web Agent Bridge",
@@ -9,16 +12,16 @@ export const agentCard: AgentCard = {
     "Send a message and receive the AI assistant's reply via browser automation.",
   supportedInterfaces: [
     {
-      url: `http://localhost:${PORT}/a2a`,
+      url: `${baseUrl}/a2a`,
       protocolBinding: "JSONRPC",
       tenant: "",
       protocolVersion: "1.0",
     },
   ],
   provider: undefined,
-  version: "3.21.0",
+  version: VERSION,
   capabilities: {
-    streaming: false,
+    streaming: true,
     pushNotifications: false,
     extensions: [],
   },

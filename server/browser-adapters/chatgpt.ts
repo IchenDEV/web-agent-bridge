@@ -71,12 +71,15 @@ export const chatgptAdapter: BrowserAdapter = {
   name: "chatgpt",
   url: "https://chatgpt.com/",
   urlPattern: /^https:\/\/chatgpt\.com\//,
-  async sendAndWaitForResponse(page, text, timeoutMs = 120_000) {
+  async sendAndWaitForResponse(page, req) {
+    const timeoutMs = req.timeoutMs ?? 120_000;
     const prev = await snapshot(page);
     try {
-      await send(page, text);
+      await send(page, req.text);
       return await pollForResponse(page, prev, timeoutMs, {
         label: "chatgpt",
+        onText: req.onText,
+        signal: req.signal,
         hasNew: (prevEl) =>
           page.evaluate((prevNode) => {
             const turns = [

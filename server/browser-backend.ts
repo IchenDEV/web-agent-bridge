@@ -2,8 +2,9 @@ import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
-import type { MessageBackend, StreamChunk } from "./message-backend.js";
+import { resolveTimeout, type MessageBackend, type SendOptions, type StreamChunk } from "./message-backend.js";
 import { ADAPTERS, adapterNames, getAdapter, type BrowserAdapter } from "./browser-adapters/index.js";
+import { TurnCancelledError } from "./browser-adapters/base.js";
 import { resolveCdpEndpoint } from "./cdp-discover.js";
 
 export function userDataDir(): string {
@@ -32,6 +33,10 @@ export class BrowserBackend implements MessageBackend {
   private attached = false;
   private pages = new Map<string, Page>();
   private queue: Promise<unknown> = Promise.resolve();
+  /** In-flight tasks: taskId → AbortController. */
+  private activeTasks = new Map<string, AbortController>();
+  /** Tasks cancelled before they reached the front of the serial queue. */
+  private cancelledBeforeStart = new Set<string>();
 
   get connected(): boolean {
     if (!this.ready) return false;
@@ -126,36 +131,84 @@ export class BrowserBackend implements MessageBackend {
     this.ready = true;
   }
 
-  async *sendAndStream(
-    taskId: string,
-    text: string,
-    timeoutMs = 180_000,
-    target?: string,
-  ): AsyncGenerator<StreamChunk> {
-    const reply = await this.sendAndWait(taskId, text, timeoutMs, target);
-    yield { text: reply, done: true };
+  /**
+   * Stream a turn: forward partial text snapshots from the adapter as delta
+   * chunks, then a final `done` chunk with the complete response.
+   */
+  async *sendAndStream(req: SendOptions): AsyncGenerator<StreamChunk> {
+    let published = "";
+    let runSettled = false;
+    const buffer: StreamChunk[] = [];
+    const waiters: Array<(c: StreamChunk) => void> = [];
+    const push = (chunk: StreamChunk) => {
+      const waiter = waiters.shift();
+      if (waiter) waiter(chunk);
+      else buffer.push(chunk);
+    };
+
+    const run = this.runTask(req, (snapshot) => {
+      if (!snapshot) return;
+      const delta = snapshot.startsWith(published) ? snapshot.slice(published.length) : "";
+      if (delta) {
+        published = snapshot;
+        push({ text: delta, done: false });
+      } else if (snapshot !== published) {
+        // Snapshot shrank or diverged (rare) — republish the full text.
+        published = snapshot;
+        push({ text: snapshot, done: false });
+      }
+    }).then(
+      (finalText) => {
+        runSettled = true;
+        push({ text: finalText, done: true });
+      },
+      (err: unknown) => {
+        runSettled = true;
+        if (err instanceof TurnCancelledError) {
+          push({ text: "", done: true, error: "Cancelled by client" });
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          push({ text: "", done: true, error: message });
+        }
+      },
+    );
+    // Prevent an unhandled rejection if the generator is abandoned early.
+    run.catch(() => undefined);
+
+    try {
+      while (true) {
+        const chunk =
+          buffer.length > 0 ? buffer.shift()! : await new Promise<StreamChunk>((r) => waiters.push(r));
+        if (chunk.error) throw new Error(chunk.error);
+        yield chunk;
+        if (chunk.done) break;
+      }
+    } finally {
+      if (!runSettled) {
+        // Consumer abandoned the stream (e.g. ACP prompt aborted) — cancel
+        // the in-flight task so the serial queue frees up.
+        this.cancel(req.taskId);
+      }
+    }
   }
 
-  async sendAndWait(
-    taskId: string,
-    text: string,
-    timeoutMs = 180_000,
-    target?: string,
-  ): Promise<string> {
-    return this.enqueue(async () => {
-      if (!this.connected || !this.context) {
-        throw new Error("Browser backend is not connected");
-      }
-      const adapter = this.resolveAdapter(target);
-      const page = await this.ensurePage(adapter);
-      console.error(`[BrowserBackend] ${adapter.name} task ${taskId}: "${text.slice(0, 60)}"`);
-      return adapter.sendAndWaitForResponse(page, text, timeoutMs);
-    });
+  async sendAndWait(req: SendOptions): Promise<string> {
+    return this.runTask(req);
+  }
+
+  /**
+   * Cancel a task: abort in-flight polling; queued (not yet started) tasks
+   * abort when they reach the front of the serial queue.
+   */
+  cancel(taskId: string): void {
+    this.cancelledBeforeStart.add(taskId);
+    this.activeTasks.get(taskId)?.abort();
   }
 
   close(): void {
     this.ready = false;
     this.pages.clear();
+    for (const controller of this.activeTasks.values()) controller.abort();
     if (this.attached) {
       // Detach only — do not close the user's Dia/Chrome window.
       void this.browser?.close().catch(() => undefined);
@@ -166,6 +219,39 @@ export class BrowserBackend implements MessageBackend {
     this.context = null;
     this.browser = null;
     this.attached = false;
+  }
+
+  /** Serial-queue runner shared by sendAndWait and sendAndStream. */
+  private runTask(
+    req: SendOptions,
+    onText?: (snapshot: string) => void,
+  ): Promise<string> {
+    const timeoutMs = resolveTimeout(req.timeoutMs);
+    return this.enqueue(async () => {
+      if (this.cancelledBeforeStart.delete(req.taskId)) {
+        throw new TurnCancelledError();
+      }
+      if (!this.connected || !this.context) {
+        throw new Error("Browser backend is not connected");
+      }
+      const adapter = this.resolveAdapter(req.target);
+      const page = await this.ensurePage(adapter);
+      const controller = new AbortController();
+      this.activeTasks.set(req.taskId, controller);
+      console.error(
+        `[BrowserBackend] ${adapter.name} task ${req.taskId}: "${req.text.slice(0, 60)}"`,
+      );
+      try {
+        return await adapter.sendAndWaitForResponse(page, {
+          text: req.text,
+          timeoutMs,
+          onText,
+          signal: controller.signal,
+        });
+      } finally {
+        this.activeTasks.delete(req.taskId);
+      }
+    });
   }
 
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {

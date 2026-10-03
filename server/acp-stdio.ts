@@ -9,7 +9,7 @@
  */
 import * as acp from "@agentclientprotocol/sdk";
 import { Readable, Writable } from "node:stream";
-import type { MessageBackend, StreamChunk } from "./message-backend.js";
+import { resolveTimeout, type MessageBackend, type SendOptions, type StreamChunk } from "./message-backend.js";
 import { createWebAgentApp } from "./acp-agent.js";
 
 console.log = console.error;
@@ -23,24 +23,15 @@ class A2AProxyBackend implements MessageBackend {
     return true;
   }
 
-  async *sendAndStream(
-    taskId: string,
-    text: string,
-    timeoutMs = 180_000,
-    target?: string,
-  ): AsyncGenerator<StreamChunk> {
-    const reply = await this.sendAndWait(taskId, text, timeoutMs, target);
+  async *sendAndStream(req: SendOptions): AsyncGenerator<StreamChunk> {
+    const reply = await this.sendAndWait(req);
     yield { text: reply, done: true };
   }
 
-  async sendAndWait(
-    _taskId: string,
-    text: string,
-    timeoutMs = 180_000,
-    target?: string,
-  ): Promise<string> {
+  async sendAndWait(req: SendOptions): Promise<string> {
     const metadata: Record<string, string> = { "x-backend": "extension" };
-    if (target) metadata["x-target-agent"] = target;
+    if (req.target) metadata["x-target-agent"] = req.target;
+    if (req.timeoutMs) metadata["x-timeout-ms"] = String(req.timeoutMs);
 
     const body = {
       jsonrpc: "2.0",
@@ -52,7 +43,7 @@ class A2AProxyBackend implements MessageBackend {
           contextId: crypto.randomUUID(),
           taskId: "",
           role: "ROLE_USER",
-          parts: [{ text, mediaType: "text/plain" }],
+          parts: [{ text: req.text, mediaType: "text/plain" }],
           metadata,
         },
         metadata,
@@ -65,7 +56,7 @@ class A2AProxyBackend implements MessageBackend {
         method: "POST",
         headers: { "Content-Type": "application/json", "A2A-Version": "1.0" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(resolveTimeout(req.timeoutMs)),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -106,6 +97,9 @@ class A2AProxyBackend implements MessageBackend {
     if (texts.length === 0) throw new Error("A2A response had no text");
     return texts.join("\n");
   }
+
+  /** The upstream A2A task is fire-and-forget once sent — nothing to cancel. */
+  cancel(_taskId: string): void {}
 
   close(): void {}
 }
