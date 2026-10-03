@@ -6,7 +6,7 @@
  */
 
 import * as acp from "@agentclientprotocol/sdk";
-import { BackendRouter, type MessageBackend, type StreamChunk } from "../server/message-backend.js";
+import { BackendRouter, type MessageBackend, type SendOptions, type StreamChunk } from "../server/message-backend.js";
 import { createWebAgentApp } from "../server/acp-agent.js";
 
 let passed = 0;
@@ -28,19 +28,15 @@ class FakeBackend implements MessageBackend {
   calls: Array<{ text: string; target?: string }> = [];
   chunks: StreamChunk[] = [{ text: "echo", done: true }];
   delayMs = 0;
+  cancelledIds: string[] = [];
 
   constructor(name: string, connected = true) {
     this.name = name;
     this.connected = connected;
   }
 
-  async *sendAndStream(
-    _taskId: string,
-    text: string,
-    _timeoutMs?: number,
-    target?: string,
-  ): AsyncGenerator<StreamChunk> {
-    this.calls.push({ text, target });
+  async *sendAndStream(req: SendOptions): AsyncGenerator<StreamChunk> {
+    this.calls.push({ text: req.text, target: req.target });
     if (this.delayMs > 0) {
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, this.delayMs);
@@ -50,12 +46,16 @@ class FakeBackend implements MessageBackend {
     for (const chunk of this.chunks) yield chunk;
   }
 
-  async sendAndWait(taskId: string, text: string, timeoutMs?: number, target?: string): Promise<string> {
+  async sendAndWait(req: SendOptions): Promise<string> {
     let finalText = "";
-    for await (const chunk of this.sendAndStream(taskId, text, timeoutMs, target)) {
+    for await (const chunk of this.sendAndStream(req)) {
       if (chunk.done) finalText = chunk.text;
     }
     return finalText;
+  }
+
+  cancel(taskId: string): void {
+    this.cancelledIds.push(taskId);
   }
 
   close(): void {
@@ -110,11 +110,11 @@ async function main() {
   router.register(browser);
 
   check("router.connected when any backend is up", router.connected);
-  const routed = await router.sendAndWait("t1", "hi");
+  const routed = await router.sendAndWait({ taskId: "t1", text: "hi" });
   check("disconnected default falls back to browser", routed === "from-browser");
   extension.connected = true;
   extension.chunks = [{ text: "from-extension", done: true }];
-  const explicit = await router.sendAndWaitVia("browser", "t2", "hi");
+  const explicit = await router.sendAndWait({ taskId: "t2", text: "hi", backend: "browser" });
   check("explicit backend bypasses the default", explicit === "from-browser" && browser.calls.length === 2);
   const status = router.status();
   check("status reports both backends", status.extension?.connected === true && status.browser?.connected === true);

@@ -123,10 +123,11 @@ export const doubaoAdapter: BrowserAdapter = {
   name: "doubao",
   url: "https://www.doubao.com/chat/",
   urlPattern: /^https:\/\/www\.doubao\.com\/chat/,
-  async sendAndWaitForResponse(page, text, timeoutMs = 300_000) {
+  async sendAndWaitForResponse(page, req) {
+    const timeoutMs = req.timeoutMs ?? 300_000;
     const prev = await snapshot(page);
     try {
-      await send(page, text);
+      await send(page, req.text);
       return await pollForResponse(page, prev, timeoutMs, {
         label: "doubao",
         intervalMs: 500,
@@ -134,6 +135,8 @@ export const doubaoAdapter: BrowserAdapter = {
         stableChecks: 6,
         // …and ~4s idle after the last busy/tool pause (send disabled, etc.).
         idleAfterBusyChecks: 8,
+        onText: req.onText,
+        signal: req.signal,
         hasNew: (prevEl) =>
           page.evaluate((prevNode) => {
             const boxes = [...document.querySelectorAll(".md-box-root")].filter(

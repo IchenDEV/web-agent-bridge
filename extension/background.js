@@ -161,6 +161,8 @@ async function connect() {
       const msg = JSON.parse(event.data);
       if (msg.type === "send") {
         await forwardToContentScript(msg);
+      } else if (msg.type === "cancel") {
+        handleCancel(msg);
       } else if (msg.type === "ping") {
         ws.send(JSON.stringify({ type: "pong" }));
       }
@@ -191,6 +193,10 @@ function scheduleReconnect() {
 
 // ── Pending task safety timeouts ──
 const pendingTasks = new Map(); // taskId → { timer, name }
+const cancelledTasks = new Set(); // taskIds cancelled by the server
+
+/** Minimal alarm delay in minutes (chrome.alarms granularity). */
+const MIN_ALARM_MINUTES = 0.5;
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) {
@@ -343,9 +349,12 @@ async function forwardToContentScript(msg) {
   const { name, scripts, tab } = matchedAgent;
   console.log(`[Background] Using ${name} tab (id=${tab.id}), forwarding task ${msg.taskId}`);
 
-  // Register safety alarm (survives service worker suspension)
+  // Register safety alarm (survives service worker suspension).
+  // Fires a bit after the content-script deadline derived from msg.timeoutMs.
+  const timeoutMs = Number(msg.timeoutMs) > 0 ? Number(msg.timeoutMs) : 80_000;
+  const safetyMinutes = Math.max(MIN_ALARM_MINUTES, (timeoutMs + 10_000) / 60_000);
   pendingTasks.set(msg.taskId, { name });
-  chrome.alarms.create(`safety-${msg.taskId}`, { delayInMinutes: 1.5 }); // 90 seconds
+  chrome.alarms.create(`safety-${msg.taskId}`, { delayInMinutes: safetyMinutes });
 
   function clearSafety() {
     pendingTasks.delete(msg.taskId);
@@ -359,6 +368,7 @@ async function forwardToContentScript(msg) {
         type: "send",
         taskId: msg.taskId,
         text: msg.text,
+        timeoutMs,
       });
       return;
     } catch (e) {
@@ -387,6 +397,7 @@ async function forwardToContentScript(msg) {
         type: "send",
         taskId: msg.taskId,
         text: msg.text,
+        timeoutMs,
       });
     } catch (e2) {
       clearSafety();
@@ -403,10 +414,34 @@ async function forwardToContentScript(msg) {
   await trySend();
 }
 
+// ── Handle server-side cancellation ──
+//
+// The server stops waiting for a cancelled task, but the content script's
+// serial queue may still be running it (adapters cannot be interrupted
+// mid-turn without breaking page state). We mark the task as cancelled and
+// silently drop its late response instead of forwarding it back.
+
+function handleCancel(msg) {
+  if (!msg?.taskId) return;
+  cancelledTasks.add(msg.taskId);
+  pendingTasks.delete(msg.taskId);
+  chrome.alarms.clear(`safety-${msg.taskId}`);
+  console.log(`[Background] Task ${msg.taskId} cancelled by server`);
+}
+
 // ── Receive responses from content scripts & settings changes ──
 
 chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
   if (msg.type === "response") {
+    // Drop responses for tasks the server already cancelled — the content
+    // script queue keeps running to preserve page-state seriality, but the
+    // server is no longer interested in the result.
+    if (msg.taskId && cancelledTasks.has(msg.taskId)) {
+      cancelledTasks.delete(msg.taskId);
+      console.log(`[Background] Dropping late response for cancelled task ${msg.taskId}`);
+      return;
+    }
+
     // Clear safety alarm for this task
     if (msg.taskId && pendingTasks.has(msg.taskId)) {
       pendingTasks.delete(msg.taskId);

@@ -41,7 +41,8 @@ export const perplexityAdapter: BrowserAdapter = {
   name: "perplexity",
   url: "https://www.perplexity.ai/",
   urlPattern: /^https:\/\/(www\.)?perplexity\.ai\//,
-  async sendAndWaitForResponse(page, text, timeoutMs = 180_000) {
+  async sendAndWaitForResponse(page, req) {
+    const timeoutMs = req.timeoutMs ?? 180_000;
     // Navigate first, then snapshot — never keep handles from an old /search page.
     if (!/^https:\/\/(www\.)?perplexity\.ai\/?$/.test(page.url().split("?")[0])) {
       await page.goto("https://www.perplexity.ai/", {
@@ -50,12 +51,14 @@ export const perplexityAdapter: BrowserAdapter = {
       });
     }
     try {
-      await send(page, text);
+      await send(page, req.text);
       return await pollForResponse(page, null, timeoutMs, {
         label: "perplexity",
         stableChecks: 4,
         idleAfterBusyChecks: 4,
         prevText: "",
+        onText: req.onText,
+        signal: req.signal,
         hasNew: () =>
           page.evaluate(() => {
             const answers = [

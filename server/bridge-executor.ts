@@ -2,23 +2,42 @@ import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/s
 import { AgentEvent } from "@a2a-js/sdk/server";
 import { TaskState, Role } from "@a2a-js/sdk";
 import type { Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent } from "@a2a-js/sdk";
-import { BackendRouter, type MessageBackend } from "./message-backend.js";
+import type { MessageBackend } from "./message-backend.js";
 
 function isoNow(): string {
   return new Date().toISOString();
 }
 
+function textPart(value: string) {
+  return {
+    content: { $case: "text" as const, value },
+    metadata: undefined,
+    filename: "",
+    mediaType: "text/plain",
+  };
+}
+
 /**
- * A2A AgentExecutor that bridges incoming messages to the browser extension
- * via WebSocket, waits for the AI response, and publishes it as a Task artifact.
+ * A2A AgentExecutor that bridges incoming messages to a message backend
+ * (extension or Playwright), streams the AI response as task artifacts and
+ * reports terminal status.
+ *
+ * Streaming strategy: publish the *complete snapshot* of the answer on every
+ * chunk with `append: false`, only the last chunk carries `lastChunk: true`.
+ * This keeps the stored artifact a single well-formed part for non-streaming
+ * clients (`wab send`), while streaming clients receive progressive updates.
  */
 export class BridgeExecutor implements AgentExecutor {
+  /** Tasks cancelled via `tasks/cancel` before their execute() finished. */
+  private cancelledTasks = new Set<string>();
+
   constructor(private bridge: MessageBackend) {}
 
   async execute(ctx: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
     const userText = this.extractText(ctx);
     const targetAgent = this.extractMetaValue(ctx, "x-target-agent");
     const backendName = this.extractMetaValue(ctx, "x-backend");
+    const timeoutMs = this.extractTimeoutMs(ctx);
     console.log(
       `[BridgeExecutor] Task ${ctx.taskId} | backend: ${backendName || "auto"} | agent: ${targetAgent || "auto"} | text: "${userText.slice(0, 80)}"`,
     );
@@ -33,12 +52,13 @@ export class BridgeExecutor implements AgentExecutor {
     };
     eventBus.publish(AgentEvent.task(task));
 
-    try {
-      const responseText =
-        this.bridge instanceof BackendRouter
-          ? await this.bridge.sendAndWaitVia(backendName, ctx.taskId, userText, 180_000, targetAgent)
-          : await this.bridge.sendAndWait(ctx.taskId, userText, 180_000, targetAgent);
+    let publishedText: string | null = null;
+    let accumulated = "";
 
+    const publishArtifact = (text: string, lastChunk: boolean) => {
+      // Skip redundant snapshots (final text equal to the last snapshot).
+      if (!lastChunk && text === publishedText) return;
+      publishedText = text;
       const artifactEvent: TaskArtifactUpdateEvent = {
         taskId: ctx.taskId,
         contextId: ctx.contextId,
@@ -46,22 +66,50 @@ export class BridgeExecutor implements AgentExecutor {
           artifactId: `${ctx.taskId}-reply`,
           name: "response",
           description: "AI assistant response",
-          parts: [
-            {
-              content: { $case: "text", value: responseText },
-              metadata: undefined,
-              filename: "",
-              mediaType: "text/plain",
-            },
-          ],
+          parts: [textPart(text)],
           metadata: undefined,
           extensions: [],
         },
         append: false,
-        lastChunk: true,
+        lastChunk,
         metadata: undefined,
       };
       eventBus.publish(AgentEvent.artifactUpdate(artifactEvent));
+    };
+
+    try {
+      const stream = this.bridge.sendAndStream({
+        taskId: ctx.taskId,
+        text: userText,
+        timeoutMs,
+        target: targetAgent,
+        backend: backendName,
+      });
+
+      for await (const chunk of stream) {
+        if (this.cancelledTasks.has(ctx.taskId)) {
+          this.cancelledTasks.delete(ctx.taskId);
+          this.publishCancelled(ctx, eventBus);
+          return;
+        }
+        if (chunk.error) throw new Error(chunk.error);
+        if (chunk.done) {
+          // Final chunk carries the complete text — prefer it over deltas.
+          const finalText = chunk.text || accumulated;
+          publishArtifact(finalText, true);
+          break;
+        }
+        if (chunk.text) {
+          accumulated += chunk.text;
+          publishArtifact(accumulated, false);
+        }
+      }
+
+      if (this.cancelledTasks.has(ctx.taskId)) {
+        this.cancelledTasks.delete(ctx.taskId);
+        this.publishCancelled(ctx, eventBus);
+        return;
+      }
 
       const doneEvent: TaskStatusUpdateEvent = {
         taskId: ctx.taskId,
@@ -71,6 +119,11 @@ export class BridgeExecutor implements AgentExecutor {
       };
       eventBus.publish(AgentEvent.statusUpdate(doneEvent));
     } catch (err: any) {
+      if (this.cancelledTasks.has(ctx.taskId)) {
+        // cancelTask() already published CANCELED for this task.
+        this.cancelledTasks.delete(ctx.taskId);
+        return;
+      }
       const failEvent: TaskStatusUpdateEvent = {
         taskId: ctx.taskId,
         contextId: ctx.contextId,
@@ -81,14 +134,7 @@ export class BridgeExecutor implements AgentExecutor {
             contextId: ctx.contextId,
             taskId: ctx.taskId,
             role: Role.ROLE_AGENT,
-            parts: [
-              {
-                content: { $case: "text", value: `Error: ${err.message}` },
-                metadata: undefined,
-                filename: "",
-                mediaType: "text/plain",
-              },
-            ],
+            parts: [textPart(`Error: ${err.message}`)],
             metadata: undefined,
             extensions: [],
             referenceTaskIds: [],
@@ -104,9 +150,23 @@ export class BridgeExecutor implements AgentExecutor {
   }
 
   async cancelTask(taskId: string, eventBus: ExecutionEventBus): Promise<void> {
+    this.cancelledTasks.add(taskId);
+    // Best-effort: stop the backend work (extension page / browser tab).
+    try {
+      this.bridge.cancel(taskId);
+    } catch (err: any) {
+      console.warn(`[BridgeExecutor] Backend cancel failed: ${err?.message ?? err}`);
+    }
+    this.publishCancelled({ taskId, contextId: taskId }, eventBus);
+  }
+
+  private publishCancelled(
+    ctx: { taskId: string; contextId: string },
+    eventBus: ExecutionEventBus,
+  ): void {
     const event: TaskStatusUpdateEvent = {
-      taskId,
-      contextId: taskId,
+      taskId: ctx.taskId,
+      contextId: ctx.contextId,
       status: { state: TaskState.TASK_STATE_CANCELED, message: undefined, timestamp: isoNow() },
       metadata: undefined,
     };
@@ -135,6 +195,21 @@ export class BridgeExecutor implements AgentExecutor {
       return String(reqMeta[key]);
     }
 
+    return undefined;
+  }
+
+  /** Optional `x-timeout-ms` / `x-timeout-sec` routing hint from metadata. */
+  private extractTimeoutMs(ctx: RequestContext): number | undefined {
+    const rawMs = this.extractMetaValue(ctx, "x-timeout-ms");
+    if (rawMs) {
+      const n = Number(rawMs);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    const rawSec = this.extractMetaValue(ctx, "x-timeout-sec");
+    if (rawSec) {
+      const n = Number(rawSec);
+      if (Number.isFinite(n) && n > 0) return n * 1000;
+    }
     return undefined;
   }
 }

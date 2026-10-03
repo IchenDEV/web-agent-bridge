@@ -51,7 +51,8 @@ import type {
 } from "@agentclientprotocol/sdk";
 import { agentCard } from "./agent-card.js";
 import { ADAPTERS } from "./browser-adapters/index.js";
-import { BackendRouter, type MessageBackend } from "./message-backend.js";
+import type { MessageBackend, SendOptions } from "./message-backend.js";
+import { DEFAULT_TIMEOUT_MS } from "./config.js";
 
 const AGENT_OPTIONS = ["auto", ...ADAPTERS.map((a) => a.name)] as const;
 const BACKEND_OPTIONS = ["auto", "extension", "browser"] as const;
@@ -83,6 +84,8 @@ interface AcpSession {
   updatedAt: string;
   closed: boolean;
   pending: AbortController | null;
+  /** Backend taskId of the in-flight prompt turn (for cancellation). */
+  currentTaskId: string | null;
   history: HistoryEntry[];
   commandsSent: boolean;
 }
@@ -485,16 +488,21 @@ export class WebAcpAgent {
     const target = session.target === "auto" ? undefined : session.target;
     const backendName = session.backend === "auto" ? undefined : session.backend;
     const taskId = crypto.randomUUID();
+    session.currentTaskId = taskId;
 
     console.error(
       `[ACP] prompt ${params.sessionId} | backend: ${backendName || "auto"} | agent: ${target || "auto"} | "${text.slice(0, 80)}"`,
     );
 
     try {
-      const stream =
-        this.backend instanceof BackendRouter
-          ? this.backend.sendAndStreamVia(backendName, taskId, text, 180_000, target)
-          : this.backend.sendAndStream(taskId, text, 180_000, target);
+      const req: SendOptions = {
+        taskId,
+        text,
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+        target,
+        backend: backendName,
+      };
+      const stream = this.backend.sendAndStream(req);
 
       let streamed = "";
       const agentMessageId = crypto.randomUUID();
@@ -540,12 +548,22 @@ export class WebAcpAgent {
       throw err;
     } finally {
       if (session.pending === abort) session.pending = null;
+      session.currentTaskId = null;
     }
   }
 
   async cancel(params: CancelNotification): Promise<void> {
     console.error(`[ACP] cancel ${params.sessionId}`);
-    this.sessions.get(params.sessionId)?.pending?.abort();
+    const session = this.sessions.get(params.sessionId);
+    if (!session) return;
+    session.pending?.abort();
+    if (session.currentTaskId) {
+      try {
+        this.backend.cancel(session.currentTaskId);
+      } catch (err: any) {
+        console.error(`[ACP] backend cancel failed: ${err?.message ?? err}`);
+      }
+    }
   }
 
   // ── Providers (unstable; not advertised) ──
@@ -631,6 +649,7 @@ export class WebAcpAgent {
       updatedAt: ts,
       closed: false,
       pending: null,
+      currentTaskId: null,
       history: [],
       commandsSent: false,
     };

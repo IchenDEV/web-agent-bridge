@@ -1,7 +1,12 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server as HttpServer } from "http";
 import { EventEmitter } from "events";
-import type { MessageBackend, StreamChunk as BackendStreamChunk } from "./message-backend.js";
+import {
+  resolveTimeout,
+  type MessageBackend,
+  type SendOptions,
+  type StreamChunk as BackendStreamChunk,
+} from "./message-backend.js";
 
 // ── Wire protocol between Server ↔ Extension ──
 
@@ -10,6 +15,17 @@ export interface BridgeSendMessage {
   taskId: string;
   text: string;
   target?: string; // "doubao" | "workbuddy" | undefined (auto)
+  /**
+   * Per-turn timeout in ms. The extension forwards it to the content script
+   * so `wab send -T 600` actually applies to the extension path (older
+   * extensions ignore it and use their built-in default).
+   */
+  timeoutMs?: number;
+}
+
+export interface BridgeCancelMessage {
+  type: "cancel";
+  taskId: string;
 }
 
 export interface BridgeStreamChunkMessage {
@@ -44,6 +60,7 @@ export interface BridgePongMessage {
 
 export type BridgeMessage =
   | BridgeSendMessage
+  | BridgeCancelMessage
   | BridgeStreamChunkMessage
   | BridgeResponseMessage
   | BridgePingMessage
@@ -81,14 +98,6 @@ export class WsBridge extends EventEmitter implements MessageBackend {
   readonly name = "extension";
   private wss: WebSocketServer | null = null;
   private client: WebSocket | null = null;
-  private pendingRequests = new Map<
-    string,
-    {
-      resolve: (text: string) => void;
-      reject: (err: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
-    }
-  >();
   private streamQueues = new Map<string, AsyncQueue<StreamChunk>>();
 
   get connected(): boolean {
@@ -133,7 +142,6 @@ export class WsBridge extends EventEmitter implements MessageBackend {
           clearInterval(this.pingInterval);
           this.pingInterval = null;
         }
-        this.rejectAllPending("Extension disconnected");
         this.closeAllStreams("Extension disconnected");
         this.emit("disconnected");
       });
@@ -147,30 +155,37 @@ export class WsBridge extends EventEmitter implements MessageBackend {
   }
 
   /**
-   * Send a chat message and return an async generator yielding streaming chunks.
-   * The generator yields partial text as it arrives, then the final complete response.
+   * Send a chat message and return an async generator yielding streaming
+   * chunks. The generator yields partial text as it arrives, then the final
+   * complete response.
    */
-  async *sendAndStream(
-    taskId: string,
-    text: string,
-    timeoutMs = 180_000,
-    target?: string
-  ): AsyncGenerator<StreamChunk> {
+  async *sendAndStream(req: SendOptions): AsyncGenerator<StreamChunk> {
     if (!this.connected) {
       throw new Error("No extension connected");
     }
 
+    const timeoutMs = resolveTimeout(req.timeoutMs);
     const queue = new AsyncQueue<StreamChunk>();
-    this.streamQueues.set(taskId, queue);
+    this.streamQueues.set(req.taskId, queue);
 
     const timer = setTimeout(() => {
-      queue.push({ text: "", done: true, error: `Timeout waiting for response (taskId: ${taskId})` });
-      this.streamQueues.delete(taskId);
+      queue.push({
+        text: "",
+        done: true,
+        error: `Timeout waiting for response (taskId: ${req.taskId})`,
+      });
+      this.streamQueues.delete(req.taskId);
     }, timeoutMs);
 
-    const msg: BridgeSendMessage = { type: "send", taskId, text, target };
+    const msg: BridgeSendMessage = {
+      type: "send",
+      taskId: req.taskId,
+      text: req.text,
+      target: req.target,
+      timeoutMs,
+    };
     this.client!.send(JSON.stringify(msg));
-    console.log(`[WsBridge] Sent task ${taskId}: "${text.slice(0, 60)}..."`);
+    console.log(`[WsBridge] Sent task ${req.taskId}: "${req.text.slice(0, 60)}..."`);
 
     try {
       while (true) {
@@ -183,21 +198,39 @@ export class WsBridge extends EventEmitter implements MessageBackend {
       }
     } finally {
       clearTimeout(timer);
-      this.streamQueues.delete(taskId);
+      this.streamQueues.delete(req.taskId);
     }
   }
 
   /**
    * Blocking convenience wrapper: send and wait for the complete response.
    */
-  async sendAndWait(taskId: string, text: string, timeoutMs = 180_000, target?: string): Promise<string> {
+  async sendAndWait(req: SendOptions): Promise<string> {
     let finalText = "";
-    for await (const chunk of this.sendAndStream(taskId, text, timeoutMs, target)) {
+    for await (const chunk of this.sendAndStream(req)) {
       if (chunk.done) {
         finalText = chunk.text;
       }
     }
     return finalText;
+  }
+
+  /**
+   * Cancel a task: stop the local wait and tell the extension so its
+   * content script / tab can stop working and drop late responses.
+   */
+  cancel(taskId: string): void {
+    const queue = this.streamQueues.get(taskId);
+    if (queue) {
+      this.streamQueues.delete(taskId);
+      queue.push({ text: "", done: true, error: "Cancelled by client" });
+    }
+
+    if (this.connected && this.client) {
+      const msg: BridgeCancelMessage = { type: "cancel", taskId };
+      this.client.send(JSON.stringify(msg));
+      console.log(`[WsBridge] Cancel sent for task ${taskId}`);
+    }
   }
 
   private handleMessage(msg: BridgeMessage): void {
@@ -213,7 +246,6 @@ export class WsBridge extends EventEmitter implements MessageBackend {
         break;
       }
       case "response": {
-        // Check if this task is being streamed
         const queue = this.streamQueues.get(msg.taskId);
         if (queue) {
           if (msg.error) {
@@ -227,20 +259,7 @@ export class WsBridge extends EventEmitter implements MessageBackend {
           }
           break;
         }
-        // Fallback for legacy non-streaming pending requests
-        const pending = this.pendingRequests.get(msg.taskId);
-        if (!pending) {
-          console.warn(`[WsBridge] No pending request for taskId: ${msg.taskId}`);
-          return;
-        }
-        clearTimeout(pending.timer);
-        this.pendingRequests.delete(msg.taskId);
-        if (msg.error) {
-          pending.reject(new Error(msg.error));
-        } else {
-          console.log(`[WsBridge] Got response for ${msg.taskId}: "${msg.text.slice(0, 80)}..."`);
-          pending.resolve(msg.text);
-        }
+        console.warn(`[WsBridge] No pending request for taskId: ${msg.taskId}`);
         break;
       }
       case "pong":
@@ -251,14 +270,6 @@ export class WsBridge extends EventEmitter implements MessageBackend {
     }
   }
 
-  private rejectAllPending(reason: string): void {
-    for (const [, { reject, timer }] of this.pendingRequests) {
-      clearTimeout(timer);
-      reject(new Error(reason));
-    }
-    this.pendingRequests.clear();
-  }
-
   private closeAllStreams(reason: string): void {
     for (const [, queue] of this.streamQueues) {
       queue.push({ text: "", done: true, error: reason });
@@ -267,7 +278,6 @@ export class WsBridge extends EventEmitter implements MessageBackend {
   }
 
   close(): void {
-    this.rejectAllPending("Bridge closing");
     this.closeAllStreams("Bridge closing");
     this.client?.close();
     this.wss?.close();

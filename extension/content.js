@@ -22,6 +22,10 @@
 
 /* global DoubaoAdapter, WorkbuddyAdapter, ChatGPTAdapter, GeminiAdapter, PerplexityAdapter, KimiAdapter, QianwenAdapter */
 
+// Default turn timeout (ms) when the server did not send one.
+// The background safety alarm fires a bit later than this.
+const DEFAULT_TIMEOUT_MS = 80_000;
+
 // ── Injection guard with extension reload detection ──
 // Uses extension ID + session to detect stale guards from old extension instances.
 const BRIDGE_SESSION = chrome.runtime.id + "_" + Date.now();
@@ -87,6 +91,9 @@ if (window.__webAgentBridgeLoaded && !isStale) {
 
   async function handleSend(msg) {
     const { taskId, text } = msg;
+    // Server-driven timeout (wab send -T). Falls back to the built-in default.
+    const timeoutMs = Number(msg.timeoutMs) > 0 ? Number(msg.timeoutMs) : DEFAULT_TIMEOUT_MS;
+    const timeoutSec = Math.ceil(timeoutMs / 1000);
 
     if (!adapter) {
       chrome.runtime.sendMessage({
@@ -98,18 +105,18 @@ if (window.__webAgentBridgeLoaded && !isStale) {
       return;
     }
 
-    console.log(`[Content][${adapter.name}] Task ${taskId}: "${text.slice(0, 60)}"`);
+    console.log(`[Content][${adapter.name}] Task ${taskId}: "${text.slice(0, 60)}" (timeout ${timeoutSec}s)`);
 
-    // Race the adapter call against a hard 80-second timeout
-    // (must be shorter than background.js's 90s safety alarm)
+    // Race the adapter call against a hard timeout slightly past the
+    // server-side deadline so the server's timeout surfaces first.
     try {
       const responseText = await Promise.race([
-        adapter.impl.sendAndWaitForResponse(text),
+        adapter.impl.sendAndWaitForResponse(text, timeoutSec),
         new Promise((_resolve, reject) =>
           setTimeout(() => reject(new Error(
-            `Content script timeout (80s) on ${adapter.name}. ` +
+            `Content script timeout (${timeoutSec}s) on ${adapter.name}. ` +
             `URL: ${location.href}. The adapter may not support this page state.`
-          )), 80_000)
+          )), timeoutMs)
         ),
       ]);
 

@@ -309,20 +309,21 @@ const YourAgentAdapter = (() => {
 ```
 web-agent-bridge/
 ├── server/                    # A2A 服务器 (TypeScript)
-│   ├── index.ts               #   入口：Express + WS + 可选 ACP
-│   ├── agent-card.ts          #   Agent Card
-│   ├── bridge-executor.ts     #   A2A ↔ 后端
-│   ├── message-backend.ts     #   后端接口与路由
-│   ├── ws-bridge.ts           #   Chrome 扩展 WebSocket
-│   ├── browser-backend.ts     #   Playwright 后端
-│   ├── browser-adapters/      #   各站点的页面操作
+│   ├── index.ts               #   入口：Express + WS + 可选 ACP + 优雅关闭
+│   ├── config.ts              #   集中配置（版本/端口/超时，单一来源）
+│   ├── agent-card.ts          #   Agent Card（声明 streaming 能力）
+│   ├── bridge-executor.ts     #   A2A ↔ 后端（流式 artifact + 取消协调）
+│   ├── message-backend.ts     #   后端接口（SendOptions）与路由
+│   ├── ws-bridge.ts           #   Chrome 扩展 WebSocket（支持 timeout/cancel）
+│   ├── browser-backend.ts      #   Playwright 后端（真流式 + AbortController）
+│   ├── browser-adapters/      #   各站点的页面操作（onText 流式钩子）
 │   ├── acp-agent.ts           #   ACP Agent
 │   ├── acp-stdio.ts           #   ACP stdin/stdout
 │   └── acp-http.ts            #   ACP HTTP / WebSocket
 ├── extension/                 # Chrome 扩展 (Manifest V3)
 │   ├── manifest.json          #   扩展配置
-│   ├── background.js          #   Service Worker
-│   ├── content.js             #   Content Script
+│   ├── background.js          #   Service Worker（超时透传、取消处理）
+│   ├── content.js             #   Content Script（使用服务器下发的超时）
 │   ├── popup.html / popup.js  #   状态弹窗
 │   ├── options.html / options.js  # 设置页
 │   ├── icons/                 #   扩展图标
@@ -334,11 +335,34 @@ web-agent-bridge/
 │       ├── perplexity.js
 │       ├── kimi.js
 │       └── qianwen.js         #   通义千问
-├── test/                      # 测试脚本
+├── test/
+│   ├── unit/                  # 单元测试（node:test，npm run test:unit）
+│   └── *.ts                   # e2e / 协议合规脚本
 ├── bin/cli.mjs                # CLI 入口 (send/agent/health/server)
 ├── package.json
 └── LICENSE                    # MIT
 ```
+
+## 架构行为说明
+
+### 流式响应
+
+Agent Card 声明 `streaming: true`。两条链路都支持流式输出：
+
+- **browser 链路**：Playwright 适配器轮询时通过 `onText` 钩子上报文本快照，后端转换为增量 delta 推送。
+- **extension 链路**：wire 协议的 `stream-chunk` 消息（增量文本）→ 最终 `response` 消息（完整文本）。
+
+A2A 侧每次以 `append: false` 发布完整快照（最后一个 chunk 标记 `lastChunk: true`），因此非流式客户端（`wab send`）拿到的 artifact 仍是单一完整文本，流式客户端（`agentalk stream`）可渐进显示。ACP 侧 `session/update` 以 `agent_message_chunk` 增量推送。
+
+### 取消
+
+- A2A `tasks/cancel` → `BridgeExecutor.cancelTask` → 广播到所有后端：本地停止等待，Playwright 通过 AbortSignal 中断轮询，扩展收到 `cancel` 消息并丢弃迟到的响应（content script 串行队列保持页面状态一致）。
+- ACP `session/cancel` → 中断本地等待并调用后端 `cancel`。
+- 任务终态统一为 `TASK_STATE_CANCELED`，不会误报 FAILED。
+
+### 超时
+
+默认单轮 180 秒（`server/config.ts`）。`wab send -T 600` 现在对两条链路全程生效：服务器 → wire 协议 `timeoutMs` 字段 → 扩展 content script 与 safety alarm 均使用该值。A2A 请求也可用 metadata `x-timeout-ms` / `x-timeout-sec` 指定。
 
 ## 故障排除
 
@@ -352,7 +376,7 @@ web-agent-bridge/
 2. 确认页面不是空白/加载中状态
 3. 在 `chrome://extensions` 中重新加载扩展，然后刷新 AI Agent 页面
 4. 打开一个**新的对话**（旧对话消息太多可能影响检测）
-5. 豆包读飞书/逐字稿等长任务请把超时调大：`wab send -T 600 …`（浏览器后端默认等发送按钮恢复 + 动画消失，不再只靠文字静止）
+5. 豆包读飞书/逐字稿等长任务请把超时调大：`wab send -T 600 …`（浏览器后端默认等发送按钮恢复 + 动画消失，不再只靠文字静止；扩展链路同样遵循 `-T`）
 
 ### 豆包任务未结束就返回 / 追问插队
 
@@ -378,6 +402,7 @@ wab server                              # 启动开发服务器
 wab health                              # 检查连接
 wab send "test"                         # 快速测试
 wab send -a doubao "test"               # 指定 Agent
+npm run test:unit                       # 单元测试（无浏览器依赖）
 npx tsx test/stress-test.ts             # 鲁棒性压力测试 (5 条连发)
 npx tsx test/a2a-protocol-verify.ts     # A2A 协议合规
 npm run test:acp                        # ACP 协议合规（进程内）

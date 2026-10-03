@@ -71,14 +71,17 @@ export const kimiAdapter: BrowserAdapter = {
   name: "kimi",
   url: "https://www.kimi.com/",
   urlPattern: /^https:\/\/(www\.)?(kimi\.com|kimi\.moonshot\.cn)\//,
-  async sendAndWaitForResponse(page, text, timeoutMs = 180_000) {
+  async sendAndWaitForResponse(page, req) {
+    const timeoutMs = req.timeoutMs ?? 180_000;
     const prev = await snapshot(page);
     try {
-      await send(page, text);
+      await send(page, req.text);
       return await pollForResponse(page, prev, timeoutMs, {
         label: "kimi",
         stableChecks: 5,
         idleAfterBusyChecks: 6,
+        onText: req.onText,
+        signal: req.signal,
         hasNew: (prevEl) =>
           page.evaluate((prevNode) => {
             const nodes = [
